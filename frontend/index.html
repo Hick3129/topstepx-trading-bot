@@ -358,18 +358,20 @@
         <!-- Right Side: Control & Risk Panel -->
         <div class="control-panel">
             
-            <!-- Target Trading Account Selector & Input -->
+            <!-- Target Trading Account Selector & Real API Auto Discovery -->
             <div class="card">
                 <div class="card-title">
-                    <span><i class="fa-solid fa-user-gear"></i> TopstepX 下單目標帳號</span>
+                    <span><i class="fa-solid fa-user-gear"></i> TopstepX 真實名下帳號</span>
+                    <button class="btn btn-outline" style="width: auto; padding: 2px 8px; font-size: 10px;" onclick="refreshAccounts()">
+                        <i class="fa-solid fa-rotate-right"></i> 重新同步拉取
+                    </button>
                 </div>
-                <label style="font-size: 11px; color: var(--text-muted);">選擇 API 帳號或輸入自訂帳號 ID</label>
+                <label style="font-size: 11px; color: var(--text-muted);">TopstepX API 名下帳號清單 (Target Account)</label>
                 <select class="form-select" id="account-selector" onchange="onAccountSelected(this.value)">
-                    <option value="">正在載入名下 Topstep 帳號...</option>
+                    <option value="">正在動態連接 TopstepX API 拉取帳號...</option>
                 </select>
 
-                <label style="font-size: 11px; color: var(--text-muted);">真實 TopstepX 帳號 ID (Account ID)</label>
-                <input type="text" class="form-input" id="custom-account-id" placeholder="例如: TS-159283 或 123456" value="TS-159283">
+                <div id="account-status-msg" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
             </div>
 
             <!-- Financial Metrics -->
@@ -391,7 +393,7 @@
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-key"></i> TopstepX API 設定</span>
-                    <span style="font-size: 11px; color: var(--green-trade);" id="api-status">✓ 授權已啟用</span>
+                    <span style="font-size: 11px; color: var(--green-trade);" id="api-status">✓ 已綁定</span>
                 </div>
                 
                 <label style="font-size: 11px; color: var(--text-muted);">Username</label>
@@ -401,7 +403,7 @@
                 <input type="password" class="form-input" id="api-key" value="eejBIQlUs3LKW0XDQbJmfNW45ggjHRliRJ840BwstKA=">
 
                 <button class="btn btn-outline" onclick="testApiConnection()">
-                    <i class="fa-solid fa-plug"></i> 測試 TopstepX API 連線
+                    <i class="fa-solid fa-plug"></i> 重新測試 API 連線
                 </button>
             </div>
 
@@ -484,29 +486,52 @@
         });
 
         async function fetchAccounts() {
+            const selector = document.getElementById('account-selector');
+            const msg = document.getElementById('account-status-msg');
+            msg.innerText = "⏳ 正在與 TopstepX 伺服器同步拉取帳號...";
+
             try {
                 const res = await fetch('/api/v1/accounts');
                 const accounts = await res.json();
-                const selector = document.getElementById('account-selector');
                 selector.innerHTML = "";
 
-                accounts.forEach(acc => {
+                if (accounts && accounts.length > 0) {
+                    accounts.forEach(acc => {
+                        const opt = document.createElement('option');
+                        opt.value = acc.accountId || acc.id || acc.accountNumber;
+                        const accName = acc.name || acc.description || "Topstep Account";
+                        const bal = acc.balance ? ` ($${acc.balance.toLocaleString()})` : '';
+                        opt.innerText = `${accName} - ${opt.value}${bal}`;
+                        selector.appendChild(opt);
+                    });
+                    msg.innerHTML = `<span style="color: var(--green-trade);">✓ 成功動態載入 ${accounts.length} 組名下 TopstepX 真實帳號</span>`;
+                } else {
                     const opt = document.createElement('option');
-                    opt.value = acc.accountId;
-                    opt.innerText = `${acc.name} (${acc.accountId}) - $${acc.balance.toLocaleString()}`;
+                    opt.value = "";
+                    opt.innerText = "⚠️ 尚未驗證連線，請點擊下方的【測試連線】按鈕";
                     selector.appendChild(opt);
-                });
-                
-                if (accounts.length > 0) {
-                    document.getElementById('custom-account-id').value = accounts[0].accountId;
+                    msg.innerHTML = `<span style="color: var(--warning-orange);">請確保 API Key 正確並點擊下方【測試連線】</span>`;
                 }
             } catch (err) {
                 console.error("Error fetching accounts:", err);
+                msg.innerText = "❌ 連線異常，請重新點擊【重新同步拉取】";
+            }
+        }
+
+        async function refreshAccounts() {
+            const msg = document.getElementById('account-status-msg');
+            msg.innerText = "⏳ 正在向 TopstepX 發起動態金鑰驗證與帳號拉取...";
+            try {
+                const res = await fetch('/api/v1/accounts/refresh', { method: 'POST' });
+                const data = await res.json();
+                fetchAccounts();
+            } catch (err) {
+                console.error("Refresh error:", err);
             }
         }
 
         function onAccountSelected(accId) {
-            document.getElementById('custom-account-id').value = accId;
+            console.log("Selected target account for orders:", accId);
         }
 
         // API Interactivity
@@ -517,9 +542,7 @@
                 alert("請輸入 TopstepX Username 與 API Key！");
                 return;
             }
-            alert("✓ 握手成功！已成功連線至 TopstepX ProjectX Gateway 並完成 JWT Token 認證。");
-            document.getElementById('api-status').innerText = "✓ 已授權連線";
-            fetchAccounts();
+            refreshAccounts();
         }
 
         async function toggleManualOverride(enabled) {
@@ -557,8 +580,8 @@
         }
 
         function panicLiquidate() {
-            const selectedAccount = document.getElementById('custom-account-id').value;
-            if (confirm(`⚠️ 確定要對帳號【${selectedAccount}】執行【一鍵全平倉】並撤銷所有掛單嗎？`)) {
+            const selectedAccount = document.getElementById('account-selector').value;
+            if (confirm(`⚠️ 確定要對名下帳號【${selectedAccount}】執行【一鍵全平倉】並撤銷所有掛單嗎？`)) {
                 alert(`🚨 已發送全平倉指令給帳號 ${selectedAccount}！所有倉位已安全平倉。`);
             }
         }

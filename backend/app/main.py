@@ -58,7 +58,7 @@ async def startup_event():
             logger.warning("TopstepX API Auth pending or invalid credentials, running in copilot mode.")
 
 class WebhookSignal(BaseModel):
-    account_id: Optional[str] = "TOPSTEP-50K-DEMO"
+    account_id: str
     ticker: str
     action: str  # BUY / SELL
     contracts: int = 1
@@ -109,16 +109,19 @@ def get_health():
 
 @app.get("/api/v1/accounts")
 async def get_user_accounts():
-    """Fetch TopstepX trading accounts list owned by the user."""
+    """Fetch TopstepX trading accounts list owned by the user 100% dynamically from TopstepX API."""
+    if not projectx_client.is_connected and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    
     accounts = await projectx_client.fetch_user_accounts()
-    if not accounts:
-        # Return standard Topstep Evaluation & Practice accounts if API is pending
-        return [
-            {"accountId": "TS-50K-EXP-88912", "name": "Topstep $50K Express Challenge #1", "balance": 50420.00, "status": "ACTIVE"},
-            {"accountId": "TS-100K-FUNDED-2041", "name": "Topstep $100K Funded Account", "balance": 100000.00, "status": "ACTIVE"},
-            {"accountId": "TS-PRACTICE-001", "name": "Topstep Practice Account", "balance": 150000.00, "status": "ACTIVE"}
-        ]
     return accounts
+
+@app.post("/api/v1/accounts/refresh")
+async def refresh_user_accounts():
+    """Trigger manual re-authentication and fetch fresh real accounts from TopstepX."""
+    success = await projectx_client.authenticate(username=username, api_key=api_key)
+    accounts = await projectx_client.fetch_user_accounts()
+    return {"status": "SUCCESS" if success else "FAILED", "accounts": accounts}
 
 @app.get("/api/v1/market/bars")
 async def get_projectx_market_bars(
@@ -185,7 +188,7 @@ async def receive_tradingview_webhook(signal: WebhookSignal):
             stop_loss_price=signal.stop_loss
         )
 
-        target_acc = signal.account_id or "TS-50K-EXP-88912"
+        target_acc = signal.account_id
 
         # 2. Send OCO Order to TopstepX Gateway
         result = await projectx_client.place_order_with_oco(
