@@ -599,10 +599,11 @@
                 const mouseX = e.clientX - rect.left;
                 // If cursor is hovering over Right Price Scale (approx rightmost 75px)
                 if (mouseX > container.clientWidth - 75) {
-                    e.preventDefault();
+                    e.stopImmediatePropagation();
                     e.stopPropagation();
+                    e.preventDefault();
                     
-                    // Scrolling up expands candle height (decreases margin), scrolling down shrinks candle height
+                    // Scrolling up expands candle height (decreases margin), scrolling down shrinks candle height (vertical zoom only, ZERO horizontal zoom)
                     const step = e.deltaY < 0 ? -0.03 : 0.03;
                     priceScaleMarginTop = Math.max(0.01, Math.min(0.45, priceScaleMarginTop + step));
                     priceScaleMarginBottom = Math.max(0.01, Math.min(0.45, priceScaleMarginBottom + step));
@@ -615,13 +616,15 @@
                         }
                     });
                 }
-            }, { passive: false });
+            }, { capture: true, passive: false });
 
             // Double click anywhere on Right Price Scale resets autoscale, matching TopstepX
             container.addEventListener('dblclick', (e) => {
                 const rect = container.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 if (mouseX > container.clientWidth - 75) {
+                    e.stopImmediatePropagation();
+                    e.stopPropagation();
                     priceScaleMarginTop = 0.05;
                     priceScaleMarginBottom = 0.25;
                     chart.priceScale('right').applyOptions({
@@ -632,7 +635,7 @@
                         }
                     });
                 }
-            });
+            }, { capture: true });
 
             window.addEventListener('resize', () => {
                 if (chart && container) {
