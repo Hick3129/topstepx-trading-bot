@@ -43,7 +43,7 @@ ict_engine = ICTEngine(use_kill_zones=True)
 # Initialize ProjectX Gateway Client with environment credentials
 api_key = os.getenv("TOPSTEPX_API_KEY", "")
 username = os.getenv("TOPSTEPX_USERNAME", "hick3129")
-base_url = os.getenv("PROJECTX_BASE_URL", "https://gateway.projectx.com")
+base_url = os.getenv("PROJECTX_BASE_URL", "https://api.topstepx.com")
 
 projectx_client = ProjectXClient(base_url=base_url)
 
@@ -51,7 +51,7 @@ projectx_client = ProjectXClient(base_url=base_url)
 async def startup_event():
     """Non-blocking background startup task."""
     logger.info("TopstepX Hybrid Engine STARTED & Listening on http://127.0.0.1:8000")
-    if api_key:
+    if api_key and username:
         asyncio.create_task(projectx_client.authenticate(username=username, api_key=api_key))
 
 class WebhookSignal(BaseModel):
@@ -106,24 +106,17 @@ def get_health():
 
 @app.get("/api/v1/accounts")
 async def get_user_accounts():
-    """Fetch TopstepX trading accounts owned by user. Falls back to user's TopstepX trading account ID."""
+    """Fetch REAL TopstepX trading accounts owned by user directly from ProjectX API."""
+    if not projectx_client.accounts and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
     accounts = await projectx_client.fetch_user_accounts()
-    if not accounts:
-        # Generate user's active TopstepX Trading Account structure based on username & API credentials
-        user_acc_id = f"TS-{username.upper()}-50K"
-        accounts = [{
-            "accountId": user_acc_id,
-            "name": f"TopstepX Express ({username})",
-            "balance": 50000.0,
-            "currency": "USD"
-        }]
     return accounts
 
 @app.post("/api/v1/accounts/refresh")
 async def refresh_user_accounts():
-    """Trigger background re-authentication and fetch fresh real accounts."""
+    """Trigger real re-authentication and fetch fresh real accounts from TopstepX."""
     success = await projectx_client.authenticate(username=username, api_key=api_key)
-    accounts = await get_user_accounts()
+    accounts = await projectx_client.fetch_user_accounts()
     return {"status": "SUCCESS" if success else "FAILED", "accounts": accounts}
 
 @app.get("/api/v1/market/bars")

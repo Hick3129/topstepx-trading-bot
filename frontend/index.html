@@ -380,11 +380,11 @@
                 <div class="metrics-grid">
                     <div class="metric-box">
                         <div class="metric-label">帳戶淨值</div>
-                        <div class="metric-val" id="net-equity">$50,420</div>
+                        <div class="metric-val" id="net-equity">$0.00</div>
                     </div>
                     <div class="metric-box">
                         <div class="metric-label">當日損益</div>
-                        <div class="metric-val positive" id="daily-pnl">+$420</div>
+                        <div class="metric-val positive" id="daily-pnl">+$0.00</div>
                     </div>
                 </div>
             </div>
@@ -489,6 +489,9 @@
             const selector = document.getElementById('account-selector');
             const msg = document.getElementById('account-status-msg');
             const statusTag = document.getElementById('api-status');
+            const netEquity = document.getElementById('net-equity');
+
+            msg.innerHTML = `<span style="color: var(--warning-orange);">⏳ 正在從 TopstepX 官方伺服器拉取真實帳號...</span>`;
 
             try {
                 const res = await fetch('/api/v1/accounts');
@@ -496,14 +499,24 @@
                 selector.innerHTML = "";
 
                 if (accounts && accounts.length > 0) {
+                    let totalBalance = 0;
                     accounts.forEach(acc => {
+                        const accId = acc.id || acc.accountId;
+                        const accName = acc.name || "Topstep Account";
+                        const bal = acc.balance !== undefined ? Number(acc.balance) : 0;
+                        totalBalance = bal; // Just display the balance of the current option
+                        
                         const opt = document.createElement('option');
-                        opt.value = acc.accountId || acc.id || acc.accountNumber;
-                        const accName = acc.name || acc.description || "Topstep Account";
-                        const bal = acc.balance ? ` ($${acc.balance.toLocaleString()})` : '';
-                        opt.innerText = `${accName} - ${opt.value}${bal}`;
+                        opt.value = accId;
+                        opt.setAttribute("data-balance", bal);
+                        opt.innerText = `${accName} (ID: ${accId}) - $${bal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
                         selector.appendChild(opt);
                     });
+                    
+                    if (accounts[0] && accounts[0].balance !== undefined) {
+                        netEquity.innerText = `$${Number(accounts[0].balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    }
+                    
                     msg.innerHTML = `<span style="color: var(--green-trade); font-weight:600;">✓ 成功載入名下 ${accounts.length} 組 TopstepX 真實帳號</span>`;
                     statusTag.innerHTML = `<span style="color: var(--green-trade);">✓ 金鑰連線成功</span>`;
                 } else {
@@ -511,10 +524,11 @@
                     opt.value = "";
                     opt.innerText = "點擊下方【測試連線與認證金鑰】按鈕進行驗證";
                     selector.appendChild(opt);
-                    msg.innerHTML = `<span style="color: var(--accent-cyan);">請點擊下方【測試連線與認證金鑰】進行 TopstepX 驗證</span>`;
+                    msg.innerHTML = `<span style="color: var(--red-trade);">⚠️ 尚未取得帳號，請確認金鑰並點擊下方【測試連線與認證金鑰】</span>`;
                 }
             } catch (err) {
                 console.error("Error fetching accounts:", err);
+                msg.innerHTML = `<span style="color: var(--red-trade);">❌ 連線失敗，請稍後重試</span>`;
             }
         }
 
@@ -524,6 +538,14 @@
 
         function onAccountSelected(accId) {
             console.log("Selected target account for orders:", accId);
+            const selector = document.getElementById('account-selector');
+            const selectedOpt = selector.options[selector.selectedIndex];
+            if (selectedOpt) {
+                const bal = selectedOpt.getAttribute("data-balance");
+                if (bal) {
+                    document.getElementById('net-equity').innerText = `$${Number(bal).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                }
+            }
         }
 
         // API Interactivity
@@ -539,21 +561,26 @@
             }
 
             statusTag.innerHTML = `<span style="color: var(--warning-orange);">⏳ 驗證中...</span>`;
-            msg.innerHTML = `<span style="color: var(--warning-orange);">⏳ 正在向 TopstepX 發起握手與帳號同步...</span>`;
+            msg.innerHTML = `<span style="color: var(--warning-orange);">⏳ 正在向 TopstepX 伺服器進行 JWT 認證與帳號同步...</span>`;
 
             try {
                 const res = await fetch('/api/v1/accounts/refresh', { method: 'POST' });
                 const data = await res.json();
                 
-                statusTag.innerHTML = `<span style="color: var(--green-trade); font-weight:700;">✓ 認證連線成功</span>`;
-                msg.innerHTML = `<span style="color: var(--green-trade); font-weight:600;">✓ 已成功連接 TopstepX 伺服器並同步帳號！</span>`;
-                
-                alert("✓ 認證成功！已成功連線至 TopstepX ProjectX Gateway 通道！");
-                fetchAccounts();
+                if (data.status === "SUCCESS" || (data.accounts && data.accounts.length > 0)) {
+                    statusTag.innerHTML = `<span style="color: var(--green-trade); font-weight:700;">✓ 認證連線成功</span>`;
+                    msg.innerHTML = `<span style="color: var(--green-trade); font-weight:600;">✓ 已成功連接 TopstepX 伺服器並同步真實帳號！</span>`;
+                    alert("✓ 認證成功！已成功自 TopstepX 官方伺服器取得授權！");
+                    fetchAccounts();
+                } else {
+                    statusTag.innerHTML = `<span style="color: var(--red-trade);">❌ 認證失敗</span>`;
+                    msg.innerHTML = `<span style="color: var(--red-trade);">❌ 金鑰驗證失敗，請檢查 API Key 是否正確。</span>`;
+                    alert("連線驗證失敗，無法自 TopstepX 伺服器取得帳號清單，請檢查 API Key 是否正確。");
+                }
             } catch (err) {
                 console.error("Refresh error:", err);
-                statusTag.innerHTML = `<span style="color: var(--red-trade);">❌ 認證失敗</span>`;
-                alert("連線驗證失敗，請檢查 API Key 是否正確。");
+                statusTag.innerHTML = `<span style="color: var(--red-trade);">❌ 連線錯誤</span>`;
+                alert("伺服器連線異常。");
             }
         }
 
@@ -593,7 +620,7 @@
 
         function panicLiquidate() {
             const selectedAccount = document.getElementById('account-selector').value;
-            if (confirm(`⚠️ 確定要對名下帳號【${selectedAccount}】執行【一鍵全平倉】並撤銷所有掛單嗎？`)) {
+            if (confirm(`⚠️ 確定要對名下帳號 (ID: ${selectedAccount}) 執行【一鍵全平倉】並撤銷所有掛單嗎？`)) {
                 alert(`🚨 已發送全平倉指令給帳號 ${selectedAccount}！所有倉位已安全平倉。`);
             }
         }

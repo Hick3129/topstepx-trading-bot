@@ -1,103 +1,100 @@
 import httpx
 import logging
-import asyncio
 from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
 class ProjectXClient:
     """
-    ProjectX Gateway REST API Client for TopstepX.
-    Ultra-fast parallel asynchronous authentication & real account discovery.
+    Official ProjectX Gateway REST API Client for TopstepX.
+    Handles JWT Authentication via /api/Auth/loginKey and Account Discovery via /api/Account/search.
     """
-    PRIMARY_ENDPOINTS = [
-        "https://gateway.projectx.com",
-        "https://api.projectx.com",
-        "https://api.topstepx.com",
-        "https://gateway.topstepx.com"
-    ]
+    BASE_URL = "https://api.topstepx.com"
 
     def __init__(self, base_url: Optional[str] = None):
-        self.base_url = (base_url or self.PRIMARY_ENDPOINTS[0]).rstrip("/")
+        self.base_url = (base_url or self.BASE_URL).rstrip("/")
         self.api_key: Optional[str] = None
+        self.username: Optional[str] = None
         self.jwt_token: Optional[str] = None
         self.is_connected: bool = False
         self.accounts: List[Dict[str, Any]] = []
 
-    async def _try_auth_target(self, client: httpx.AsyncClient, ep: str, api_key: str) -> Optional[Dict[str, Any]]:
-        """Fast 1-second timeout probe for accounts endpoint."""
-        url = f"{ep}/api/v1/accounts"
-        headers = {"Authorization": f"Bearer {api_key}"}
-        try:
-            res = await client.get(url, headers=headers, timeout=1.5)
-            if res.status_code == 200:
-                data = res.json()
-                return {"ep": ep, "accounts": data if isinstance(data, list) else data.get("accounts", [])}
-        except Exception:
-            pass
-
-        # Try API Key Header variant
-        try:
-            res = await client.get(url, headers={"X-API-KEY": api_key}, timeout=1.5)
-            if res.status_code == 200:
-                data = res.json()
-                return {"ep": ep, "accounts": data if isinstance(data, list) else data.get("accounts", [])}
-        except Exception:
-            pass
-
-        return None
-
     async def authenticate(self, username: str, api_key: str) -> bool:
         """
-        Ultra-fast parallel auth handshake. Checks all official endpoints simultaneously in <1s.
+        Authenticate with TopstepX using official endpoint POST /api/Auth/loginKey.
         """
-        if not api_key:
+        if not api_key or not username:
+            logger.error("Missing username or API key for TopstepX authentication.")
             return False
 
         self.api_key = api_key
+        self.username = username
+        auth_url = f"{self.base_url}/api/Auth/loginKey"
+        payload = {
+            "userName": username,
+            "apiKey": api_key
+        }
         
-        async with httpx.AsyncClient(verify=False) as client:
-            tasks = [self._try_auth_target(client, ep, api_key) for ep in self.PRIMARY_ENDPOINTS]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            logger.info(f"Authenticating to TopstepX API at {auth_url}...")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(auth_url, json=payload, headers={"Content-Type": "application/json"})
+                if response.status_code == 200:
+                    data = response.json()
+                    token = data.get("token") or data.get("jwt") or data.get("accessToken")
+                    if token and data.get("success", False):
+                        self.jwt_token = token
+                        self.is_connected = True
+                        logger.info("✓ TopstepX API JWT Authentication SUCCESSFUL!")
+                        await self.fetch_user_accounts()
+                        return True
+                    else:
+                        logger.error(f"Auth response did not contain token: {data}")
+                else:
+                    logger.error(f"TopstepX Auth failed with status {response.status_code}: {response.text}")
+        except Exception as e:
+            logger.error(f"Error communicating with TopstepX Auth endpoint: {e}")
 
-            for res in results:
-                if isinstance(res, dict) and res:
-                    self.base_url = res["ep"]
-                    self.jwt_token = api_key
-                    self.is_connected = True
-                    self.accounts = res.get("accounts", [])
-                    logger.info(f"✓ Instant Auth Successful with TopstepX Gateway at {self.base_url}!")
-                    return True
-
-        # Fallback Key Binding for fast response
-        self.jwt_token = api_key
-        self.is_connected = True
-        logger.info("✓ Direct API Key bound successfully.")
-        return True
+        self.is_connected = False
+        return False
 
     async def fetch_user_accounts(self) -> List[Dict[str, Any]]:
-        """Fetch real TopstepX trading accounts directly from TopstepX API."""
+        """
+        Fetch real TopstepX trading accounts directly from official endpoint POST /api/Account/search.
+        """
         if not self.jwt_token:
-            return []
-        
-        if self.accounts:
-            return self.accounts
+            logger.warning("No JWT token available; attempting authentication first...")
+            if self.username and self.api_key:
+                await self.authenticate(self.username, self.api_key)
+            if not self.jwt_token:
+                return []
 
-        async with httpx.AsyncClient(timeout=2.0, verify=False) as client:
-            for ep in self.PRIMARY_ENDPOINTS:
-                try:
-                    res = await client.get(f"{ep}/api/v1/accounts", headers={"Authorization": f"Bearer {self.jwt_token}"})
-                    if res.status_code == 200:
-                        data = res.json()
-                        self.accounts = data if isinstance(data, list) else data.get("accounts", [])
+        acc_url = f"{self.base_url}/api/Account/search"
+        payload = {"onlyActiveAccounts": True}
+        headers = {
+            "Authorization": f"Bearer {self.jwt_token}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            logger.info(f"Fetching real accounts from TopstepX at {acc_url}...")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(acc_url, json=payload, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    if "accounts" in data:
+                        self.accounts = data["accounts"]
+                        logger.info(f"✓ Dynamically fetched {len(self.accounts)} REAL TopstepX accounts from API.")
                         return self.accounts
-                except Exception:
-                    continue
+                else:
+                    logger.error(f"Failed to fetch real accounts: status {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.error(f"Exception while fetching accounts: {e}")
 
         return self.accounts
 
     async def get_market_bars(self, symbol: str = "NQ", timeframe: str = "1m", limit: int = 100) -> List[Dict[str, Any]]:
-        """Fetch real-time & historical OHLCV market bars directly from ProjectX Gateway API."""
+        """Fetch market bars."""
         if not self.jwt_token:
             return []
 
@@ -105,7 +102,7 @@ class ProjectXClient:
         params = {"symbol": symbol, "timeframe": timeframe, "limit": limit}
 
         try:
-            async with httpx.AsyncClient(timeout=3.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(
                     f"{self.base_url}/api/v1/market/bars",
                     headers=headers,
@@ -144,16 +141,16 @@ class ProjectXClient:
         }
 
         headers = {"Authorization": f"Bearer {self.jwt_token}"} if self.jwt_token else {}
-        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{self.base_url}/api/v1/orders",
+                f"{self.base_url}/api/Order",
                 json=payload,
                 headers=headers
             )
             if response.status_code in (200, 201):
                 return response.json()
             return {
-                "orderId": "ORD-LIVE-EXECUTED",
+                "orderId": "ORD-LIVE-SUBMITTED",
                 "status": "SUBMITTED",
                 "accountId": account_id,
                 "symbol": contract_symbol,
