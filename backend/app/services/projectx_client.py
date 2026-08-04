@@ -9,12 +9,18 @@ class ProjectXClient:
     ProjectX Gateway REST API Client for TopstepX.
     Handles Authentication, Real Account Auto-Discovery, Contract lookup, Market Data Bars, and Server-side OCO orders.
     """
-    # TopstepX / ProjectX Gateway official REST API endpoints
     OFFICIAL_ENDPOINTS = [
         "https://gateway.projectx.com",
         "https://api.projectx.com",
         "https://gateway.topstepx.com",
         "https://api.topstepx.com"
+    ]
+
+    AUTH_PATHS = [
+        "/api/v1/auth/login",
+        "/api/v1/login",
+        "/api/v1/auth/token",
+        "/api/v1/auth/api-key"
     ]
 
     def __init__(self, base_url: Optional[str] = None):
@@ -26,32 +32,32 @@ class ProjectXClient:
     async def authenticate(self, username: str, api_key: str) -> bool:
         """
         Authenticate with TopstepX / ProjectX Gateway using Username and API Key.
-        Tries official endpoints automatically until a real JWT token is granted.
+        Tries official endpoints and auth paths automatically until a real JWT token is granted.
         """
         endpoints_to_try = [self.base_url] + [ep for ep in self.OFFICIAL_ENDPOINTS if ep != self.base_url]
 
         for ep in endpoints_to_try:
-            try:
-                logger.info(f"Connecting to TopstepX Gateway at: {ep}...")
-                async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
-                    response = await client.post(
-                        f"{ep}/api/v1/auth/login",
-                        json={"username": username, "apiKey": api_key}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        token = data.get("token") or data.get("jwtToken") or data.get("accessToken")
-                        if token:
-                            self.base_url = ep
-                            self.jwt_token = token
-                            self.is_connected = True
-                            logger.info(f"✓ TopstepX API Authentication Successful via {ep}!")
-                            await self.fetch_user_accounts()
-                            return True
-                    elif response.status_code in (401, 403):
-                        logger.warning(f"TopstepX Auth rejected at {ep}: {response.status_code}")
-            except Exception as e:
-                logger.debug(f"Endpoint {ep} not reachable: {e}")
+            for path in self.AUTH_PATHS:
+                try:
+                    url = f"{ep}{path}"
+                    logger.info(f"Connecting to TopstepX Auth at: {url}...")
+                    async with httpx.AsyncClient(timeout=6.0, verify=False) as client:
+                        response = await client.post(
+                            url,
+                            json={"username": username, "apiKey": api_key, "key": api_key}
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            token = data.get("token") or data.get("jwtToken") or data.get("accessToken")
+                            if token:
+                                self.base_url = ep
+                                self.jwt_token = token
+                                self.is_connected = True
+                                logger.info(f"✓ TopstepX API Authentication Successful via {url}!")
+                                await self.fetch_user_accounts()
+                                return True
+                except Exception as e:
+                    logger.debug(f"Auth path {ep}{path} failed: {e}")
 
         logger.error("Could not authenticate with TopstepX Gateway across endpoints.")
         return False
