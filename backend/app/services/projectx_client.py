@@ -139,11 +139,19 @@ class ProjectXClient:
 
         headers = {"Authorization": f"Bearer {self.jwt_token}", "Content-Type": "application/json"}
         
-        # Map timeframe string to ProjectX units: 1=Second, 2=Minute, 3=Hour, 4=Day
+        # Map timeframe string to ProjectX units: 1=Second (Tick-like), 2=Minute, 3=Hour, 4=Day
         unit = 2  # Default minute
         unit_num = 1
         tf = timeframe.lower()
-        if tf == "1m":
+        if tf in ("1s", "tick"):
+            unit, unit_num = 1, 1
+        elif tf == "5s":
+            unit, unit_num = 1, 5
+        elif tf == "15s":
+            unit, unit_num = 1, 15
+        elif tf == "30s":
+            unit, unit_num = 1, 30
+        elif tf == "1m":
             unit, unit_num = 2, 1
         elif tf == "5m":
             unit, unit_num = 2, 5
@@ -155,8 +163,8 @@ class ProjectXClient:
             unit, unit_num = 4, 1
 
         now = datetime.now(timezone.utc)
-        days_back = 3 if unit == 2 else (14 if unit == 3 else 90)
-        start_time = now - timedelta(days=days_back)
+        hours_back = 6 if unit == 1 else (72 if unit == 2 else (336 if unit == 3 else 2160))
+        start_time = now - timedelta(hours=hours_back)
 
         payload = {
             "contractId": contract_id,

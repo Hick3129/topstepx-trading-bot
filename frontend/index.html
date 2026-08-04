@@ -336,7 +336,10 @@
                         <option value="CL">CL (紐約原油期貨 Crude Oil)</option>
                         <option value="GC">GC (黃金期貨 Gold)</option>
                     </select>
-                    <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
+                    <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color); flex-wrap: wrap;">
+                        <button class="btn btn-tf" data-tf="1s" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ff9800; font-weight: 700;" onclick="setTimeframe('1s', this)" title="1秒高頻 Tick 級極速線"><i class="fa-solid fa-gauge-high"></i> 1s (Tick)</button>
+                        <button class="btn btn-tf" data-tf="5s" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ff9800;" onclick="setTimeframe('5s', this)">5s</button>
+                        <button class="btn btn-tf" data-tf="15s" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ff9800;" onclick="setTimeframe('15s', this)">15s</button>
                         <button class="btn btn-tf active" data-tf="1m" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('1m', this)">1m</button>
                         <button class="btn btn-tf" data-tf="5m" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('5m', this)">5m</button>
                         <button class="btn btn-tf" data-tf="15m" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('15m', this)">15m</button>
@@ -542,7 +545,7 @@
                 timeScale: {
                     borderColor: 'rgba(255, 255, 255, 0.1)',
                     timeVisible: true,
-                    secondsVisible: false,
+                    secondsVisible: true,
                     barSpacing: currentBarSpacing
                 }
             });
