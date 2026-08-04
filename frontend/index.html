@@ -11,13 +11,13 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- TradingView Lightweight Charts CDN -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 
     <style>
         :root {
             --bg-primary: #0b0e14;
             --bg-secondary: #131722;
-            --bg-card: rgba(23, 27, 38, 0.7);
+            --bg-card: rgba(23, 27, 38, 0.75);
             --border-color: rgba(255, 255, 255, 0.08);
             --accent-blue: #2962ff;
             --accent-cyan: #00f2fe;
@@ -182,16 +182,16 @@
         /* Chart Area */
         .chart-container {
             grid-column: 1 / 2;
-            min-height: 480px;
             display: flex;
             flex-direction: column;
         }
 
         #tv-chart {
-            flex: 1;
             width: 100%;
-            height: 100%;
+            height: 480px;
+            min-height: 480px;
             border-radius: 8px;
+            background: #131722;
         }
 
         /* Right Control Panel */
@@ -474,34 +474,60 @@
 
     <!-- Chart Script Integration -->
     <script>
-        // Initialize TradingView Lightweight Chart
-        const chartElement = document.getElementById('tv-chart');
-        const chart = LightweightCharts.createChart(chartElement, {
-            layout: {
-                backgroundColor: '#131722',
-                textColor: '#d1d4dc',
-            },
-            grid: {
-                vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
-                horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
-            },
-            timeScale: { borderColor: '#2B2B43' },
-        });
+        window.addEventListener('DOMContentLoaded', () => {
+            const chartElement = document.getElementById('tv-chart');
+            if (!chartElement || typeof LightweightCharts === 'undefined') return;
 
-        const candlestickSeries = chart.addCandlestickSeries({
-            upColor: '#089981',
-            downColor: '#f23645',
-            borderVisible: false,
-            wickUpColor: '#089981',
-            wickDownColor: '#f23645',
-        });
+            const chart = LightweightCharts.createChart(chartElement, {
+                width: chartElement.clientWidth,
+                height: 480,
+                layout: {
+                    background: { type: 'solid', color: '#131722' },
+                    textColor: '#d1d4dc',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                    horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                },
+                timeScale: { borderColor: '#2B2B43' },
+            });
 
-        const mockCandles = [
-            { time: '2026-08-04', open: 19500, high: 19530, low: 19490, close: 19515 },
-            { time: '2026-08-05', open: 19515, high: 19550, low: 19510, close: 19545 },
-            { time: '2026-08-06', open: 19545, high: 19560, low: 19520, close: 19535 },
-        ];
-        candlestickSeries.setData(mockCandles);
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#089981',
+                downColor: '#f23645',
+                borderVisible: false,
+                wickUpColor: '#089981',
+                wickDownColor: '#f23645',
+            });
+
+            // Generate realistic 1-minute NQ futures candlestick data
+            const mockCandles = [];
+            let basePrice = 19500.0;
+            let baseTime = new Date('2026-08-04T09:30:00Z').getTime() / 1000;
+
+            for (let i = 0; i < 60; i++) {
+                const open = basePrice + (Math.random() - 0.48) * 10;
+                const high = open + Math.random() * 8;
+                const low = open - Math.random() * 8;
+                const close = (open + high + low) / 3;
+                basePrice = close;
+
+                mockCandles.push({
+                    time: baseTime + i * 60,
+                    open: parseFloat(open.toFixed(2)),
+                    high: parseFloat(high.toFixed(2)),
+                    low: parseFloat(low.toFixed(2)),
+                    close: parseFloat(close.toFixed(2)),
+                });
+            }
+
+            candlestickSeries.setData(mockCandles);
+
+            // Responsive Resize
+            window.addEventListener('resize', () => {
+                chart.applyOptions({ width: chartElement.clientWidth });
+            });
+        });
 
         // API Interactivity
         async function testApiConnection() {
