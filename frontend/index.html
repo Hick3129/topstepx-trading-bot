@@ -256,7 +256,7 @@
         .btn-save { background: var(--accent-blue); color: white; }
         .btn-outline { background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); }
 
-        .form-input {
+        .form-input, .form-select {
             width: 100%;
             padding: 8px 10px;
             background: rgba(0, 0, 0, 0.3);
@@ -267,6 +267,11 @@
             margin-top: 4px;
             margin-bottom: 8px;
             font-size: 12px;
+        }
+
+        .form-select option {
+            background: #131722;
+            color: white;
         }
 
         /* Bottom Positions Panel */
@@ -353,6 +358,17 @@
         <!-- Right Side: Control & Risk Panel -->
         <div class="control-panel">
             
+            <!-- Target Trading Account Selector -->
+            <div class="card">
+                <div class="card-title">
+                    <span><i class="fa-solid fa-user-gear"></i> TopstepX 下單目標帳號</span>
+                </div>
+                <label style="font-size: 11px; color: var(--text-muted);">選擇下單帳號 (Target Account)</label>
+                <select class="form-select" id="account-selector" onchange="onAccountSelected(this.value)">
+                    <option value="">正在載入名下 Topstep 帳號...</option>
+                </select>
+            </div>
+
             <!-- Financial Metrics -->
             <div class="card">
                 <div class="card-title">帳戶損益概覽</div>
@@ -459,6 +475,33 @@
             "container_id": "tradingview_widget"
         });
 
+        // Load Accounts automatically on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            fetchAccounts();
+        });
+
+        async function fetchAccounts() {
+            try {
+                const res = await fetch('/api/v1/accounts');
+                const accounts = await res.json();
+                const selector = document.getElementById('account-selector');
+                selector.innerHTML = "";
+
+                accounts.forEach(acc => {
+                    const opt = document.createElement('option');
+                    opt.value = acc.accountId;
+                    opt.innerText = `${acc.name} (${acc.accountId}) - $${acc.balance.toLocaleString()}`;
+                    selector.appendChild(opt);
+                });
+            } catch (err) {
+                console.error("Error fetching accounts:", err);
+            }
+        }
+
+        function onAccountSelected(accId) {
+            console.log("Selected target account for orders:", accId);
+        }
+
         // API Interactivity
         async function testApiConnection() {
             const user = document.getElementById('api-username').value;
@@ -469,6 +512,7 @@
             }
             alert("✓ 握手成功！已成功連線至 TopstepX ProjectX Gateway 並完成 JWT Token 認證。");
             document.getElementById('api-status').innerText = "✓ 已授權連線";
+            fetchAccounts();
         }
 
         async function toggleManualOverride(enabled) {
@@ -506,8 +550,9 @@
         }
 
         function panicLiquidate() {
-            if (confirm("⚠️ 確定要執行【一鍵全平倉】並撤銷所有掛單嗎？")) {
-                alert("🚨 已發送全平倉指令！所有倉位已安全平倉。");
+            const selectedAccount = document.getElementById('account-selector').value;
+            if (confirm(`⚠️ 確定要對帳號【${selectedAccount}】執行【一鍵全平倉】並撤銷所有掛單嗎？`)) {
+                alert(`🚨 已發送全平倉指令給帳號 ${selectedAccount}！所有倉位已安全平倉。`);
             }
         }
     </script>

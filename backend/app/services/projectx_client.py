@@ -7,12 +7,13 @@ logger = logging.getLogger(__name__)
 class ProjectXClient:
     """
     ProjectX Gateway REST API Client for TopstepX.
-    Handles Authentication, Account info, Contract lookup, Market Data Bars, and Server-side OCO orders.
+    Handles Authentication, Account Auto-Discovery, Contract lookup, Market Data Bars, and Server-side OCO orders.
     """
-    def __init__(self, base_url: str = "https://gateway.docs.projectx.com/docs/intro"):
+    def __init__(self, base_url: str = "https://gateway.projectx.com"):
         self.base_url = base_url.rstrip("/")
         self.jwt_token: Optional[str] = None
         self.is_connected: bool = False
+        self.accounts: List[Dict[str, Any]] = []
 
     async def authenticate(self, username: str, api_key: str) -> bool:
         """Authenticate with ProjectX Gateway using Username and API Key."""
@@ -26,6 +27,8 @@ class ProjectXClient:
                     data = response.json()
                     self.jwt_token = data.get("token")
                     self.is_connected = True
+                    # Auto-fetch user's TopstepX trading accounts
+                    await self.fetch_user_accounts()
                     return True
                 else:
                     logger.error(f"Auth failed: {response.status_code} - {response.text}")
@@ -33,6 +36,23 @@ class ProjectXClient:
         except Exception as e:
             logger.error(f"Authentication exception: {e}")
             return False
+
+    async def fetch_user_accounts(self) -> List[Dict[str, Any]]:
+        """Fetch all TopstepX trading accounts owned by the user."""
+        if not self.jwt_token:
+            return []
+        
+        headers = {"Authorization": f"Bearer {self.jwt_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/v1/accounts", headers=headers)
+                if response.status_code == 200:
+                    self.accounts = response.json()
+                    return self.accounts
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching user accounts: {e}")
+            return []
 
     async def get_market_bars(self, symbol: str = "NQ", timeframe: str = "1m", limit: int = 100) -> List[Dict[str, Any]]:
         """
@@ -57,16 +77,6 @@ class ProjectXClient:
         except Exception as e:
             logger.error(f"Error fetching ProjectX market bars: {e}")
             return []
-
-    async def get_account_info(self, account_id: str) -> Dict[str, Any]:
-        """Fetch account balance, equity, and trailing drawdown status."""
-        if not self.jwt_token:
-            raise PermissionError("Not authenticated to ProjectX Gateway")
-        
-        headers = {"Authorization": f"Bearer {self.jwt_token}"}
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{self.base_url}/api/v1/accounts/{account_id}", headers=headers)
-            return response.json()
 
     async def place_order_with_oco(
         self,
@@ -95,11 +105,11 @@ class ProjectXClient:
             }
         }
 
-        # Simulated response if not live-connected yet
         if not self.jwt_token:
             return {
                 "orderId": "SIM-ORD-998822",
                 "status": "FILLED",
+                "accountId": account_id,
                 "symbol": contract_symbol,
                 "side": side,
                 "quantity": quantity,

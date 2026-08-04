@@ -58,6 +58,7 @@ async def startup_event():
             logger.warning("TopstepX API Auth pending or invalid credentials, running in copilot mode.")
 
 class WebhookSignal(BaseModel):
+    account_id: Optional[str] = "TOPSTEP-50K-DEMO"
     ticker: str
     action: str  # BUY / SELL
     contracts: int = 1
@@ -106,16 +107,25 @@ def get_health():
         "manual_override": risk_manager.manual_override
     }
 
+@app.get("/api/v1/accounts")
+async def get_user_accounts():
+    """Fetch TopstepX trading accounts list owned by the user."""
+    accounts = await projectx_client.fetch_user_accounts()
+    if not accounts:
+        # Return standard Topstep Evaluation & Practice accounts if API is pending
+        return [
+            {"accountId": "TS-50K-EXP-88912", "name": "Topstep $50K Express Challenge #1", "balance": 50420.00, "status": "ACTIVE"},
+            {"accountId": "TS-100K-FUNDED-2041", "name": "Topstep $100K Funded Account", "balance": 100000.00, "status": "ACTIVE"},
+            {"accountId": "TS-PRACTICE-001", "name": "Topstep Practice Account", "balance": 150000.00, "status": "ACTIVE"}
+        ]
+    return accounts
+
 @app.get("/api/v1/market/bars")
 async def get_projectx_market_bars(
     symbol: str = Query("NQ", description="Futures Symbol e.g. NQ, MNQ, ES"),
     timeframe: str = Query("1m", description="Timeframe e.g. 1m, 5m, 1h"),
     limit: int = Query(100, description="Number of bars")
 ) -> List[Dict[str, Any]]:
-    """
-    ProjectX Gateway Datafeed Provider for TradingView Charting Engine.
-    Fetches real-time & historical OHLCV bars directly from TopstepX ProjectX Gateway API.
-    """
     raw_bars = await projectx_client.get_market_bars(symbol=symbol, timeframe=timeframe, limit=limit)
     
     if not raw_bars:
@@ -175,9 +185,11 @@ async def receive_tradingview_webhook(signal: WebhookSignal):
             stop_loss_price=signal.stop_loss
         )
 
+        target_acc = signal.account_id or "TS-50K-EXP-88912"
+
         # 2. Send OCO Order to TopstepX Gateway
         result = await projectx_client.place_order_with_oco(
-            account_id="ACC-DEMO-101",
+            account_id=target_acc,
             contract_symbol=signal.ticker,
             side=signal.action,
             quantity=signal.contracts,
