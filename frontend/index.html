@@ -358,15 +358,18 @@
         <!-- Right Side: Control & Risk Panel -->
         <div class="control-panel">
             
-            <!-- Target Trading Account Selector -->
+            <!-- Target Trading Account Selector & Input -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-user-gear"></i> TopstepX 下單目標帳號</span>
                 </div>
-                <label style="font-size: 11px; color: var(--text-muted);">選擇下單帳號 (Target Account)</label>
+                <label style="font-size: 11px; color: var(--text-muted);">選擇 API 帳號或輸入自訂帳號 ID</label>
                 <select class="form-select" id="account-selector" onchange="onAccountSelected(this.value)">
                     <option value="">正在載入名下 Topstep 帳號...</option>
                 </select>
+
+                <label style="font-size: 11px; color: var(--text-muted);">真實 TopstepX 帳號 ID (Account ID)</label>
+                <input type="text" class="form-input" id="custom-account-id" placeholder="例如: TS-159283 或 123456" value="TS-159283">
             </div>
 
             <!-- Financial Metrics -->
@@ -493,13 +496,17 @@
                     opt.innerText = `${acc.name} (${acc.accountId}) - $${acc.balance.toLocaleString()}`;
                     selector.appendChild(opt);
                 });
+                
+                if (accounts.length > 0) {
+                    document.getElementById('custom-account-id').value = accounts[0].accountId;
+                }
             } catch (err) {
                 console.error("Error fetching accounts:", err);
             }
         }
 
         function onAccountSelected(accId) {
-            console.log("Selected target account for orders:", accId);
+            document.getElementById('custom-account-id').value = accId;
         }
 
         // API Interactivity
@@ -550,7 +557,7 @@
         }
 
         function panicLiquidate() {
-            const selectedAccount = document.getElementById('account-selector').value;
+            const selectedAccount = document.getElementById('custom-account-id').value;
             if (confirm(`⚠️ 確定要對帳號【${selectedAccount}】執行【一鍵全平倉】並撤銷所有掛單嗎？`)) {
                 alert(`🚨 已發送全平倉指令給帳號 ${selectedAccount}！所有倉位已安全平倉。`);
             }
