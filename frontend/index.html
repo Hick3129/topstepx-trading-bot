@@ -1221,60 +1221,191 @@
             const qty = parseInt(document.getElementById('tsx-qty-input').value) || 1;
             const orderType = document.getElementById('tsx-order-type').value;
             const account = document.getElementById('account-selector').value;
-            const price = document.getElementById('tsx-order-price') ? document.getElementById('tsx-order-price').value : '';
+            const priceEl = document.getElementById('tsx-order-price');
+            const price = priceEl ? parseFloat(priceEl.value) || null : null;
             const isBracket = document.getElementById('tsx-bracket-select').value === 'Enabled';
-            
+            const tpTicks = isBracket && document.getElementById('tp-ticks-input') ? parseInt(document.getElementById('tp-ticks-input').value) : null;
+            const slTicks = isBracket && document.getElementById('sl-ticks-input') ? parseInt(document.getElementById('sl-ticks-input').value) : null;
+
+            if (!account) {
+                alert("⚠️ 請先在面板中選擇一組有效的 TopstepX 真實名下帳號 (Target Account)！");
+                return;
+            }
+
+            const confirmMsg = `🚀 確定向 TopstepX 官方發送【真實委託交易】嗎？\n\n對象帳戶 ID：${account}\n商品合約：${symbol}\n方向：${direction === 'BUY' ? '🟢 做多 (BUY)' : '🔴 做空 (SELL)'}\n手數：${qty} 手\n單型：${orderType}${price ? ' @ ' + price : ' (市價即時)'}\nOCO 停損停盈保護：${isBracket ? `啟用 (TP +${tpTicks || 40} / SL -${slTicks || 20} Ticks)` : '未啟用'}`;
+            if (!confirm(confirmMsg)) return;
+
+            try {
+                const res = await fetch('/api/v1/trade/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        account_id: parseInt(account),
+                        symbol: symbol,
+                        side: direction,
+                        quantity: qty,
+                        order_type: orderType,
+                        limit_price: price,
+                        stop_price: price,
+                        take_profit_ticks: tpTicks,
+                        stop_loss_ticks: slTicks
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`🎉 委託單成功傳送到 ProjectX 官方大單池！\n官方回傳 ID：${data.orderId || 'LIVE'}`);
+                    syncAccountData();
+                } else {
+                    alert(`❌ 下單失敗：${data.errorMessage || data.detail || '官方拒絕委託，請檢查資格限制或資金餘額'}`);
+                }
+            } catch (err) {
+                console.error("Order submit error:", err);
+                alert(`❌ 無法連線至下單後台微服務：${err.message}`);
+            }
+        }
+
+        async function executeJoinOrder(side) {
+            const symbol = document.getElementById('chart-symbol').value;
+            const qty = parseInt(document.getElementById('tsx-qty-input').value) || 1;
+            const account = document.getElementById('account-selector').value;
             if (!account) {
                 alert("⚠️ 請先在面板中選擇一組有效的 TopstepX 真實名下帳號！");
                 return;
             }
+            const typeStr = side === 'BID' ? 'JOINBID' : 'JOINASK';
+            const actionStr = side === 'BID' ? 'BUY' : 'SELL';
+            if (!confirm(`⚡ 確定要以當前市場最新 ${side === 'BID' ? '最高買方報價 (Join Bid)' : '最低賣方報價 (Join Ask)'} 投入 ${qty} 手 ${symbol} 嗎？`)) return;
 
-            const confirmMsg = `🚀 確定發送【TopstepX 官方訂單指令】嗎？\n\n對象帳戶：${account}\n商品：${symbol}\n方向：${direction === 'BUY' ? '🟢 做多 (BUY)' : '🔴 做空 (SELL)'}\n手數：${qty} 手\n單型：${orderType}${price ? ' @ ' + price : ' (市價即時)'}\nOCO 停損停盈保護：${isBracket ? '啟用 (TP +20 / SL -10 Ticks)' : '未啟用'}`;
-            if (!confirm(confirmMsg)) return;
-
-            const tbody = document.getElementById('positions-tbody');
-            const mid = document.getElementById('tsx-live-mid').innerText || "29,050.00";
-            const newRow = document.createElement('tr');
-            const pnlColor = direction === 'BUY' ? 'var(--green-trade)' : 'var(--red-trade)';
-            const dirLabel = direction === 'BUY' ? '<span style="color: var(--green-trade); font-weight: 700;">BUY (多)</span>' : '<span style="color: var(--red-trade); font-weight: 700;">SELL (空)</span>';
-            const slText = isBracket ? `${(parseFloat(mid) - (direction==='BUY'?10:-10)*0.25).toFixed(2)} (OCO)` : '無';
-
-            newRow.innerHTML = `
-                <td><strong>${symbol} (CME 直連)</strong></td>
-                <td>${dirLabel}</td>
-                <td>${qty} 手</td>
-                <td>${mid}</td>
-                <td>${mid}</td>
-                <td>${slText}</td>
-                <td style="color: ${pnlColor}; font-weight: 700;">+$0.00 (剛進場)</td>
-                <td><span style="background: rgba(0, 242, 254, 0.2); color: var(--accent-cyan); padding: 2px 6px; border-radius: 4px; font-size: 11px;">TSX Panel</span></td>
-            `;
-            if (tbody) {
-                if (tbody.children[0] && tbody.children[0].innerText.includes('當前無持倉')) tbody.innerHTML = '';
-                tbody.prepend(newRow);
+            try {
+                const res = await fetch('/api/v1/trade/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        account_id: parseInt(account),
+                        symbol: symbol,
+                        side: actionStr,
+                        quantity: qty,
+                        order_type: typeStr
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`⚡ JOIN ${side} 排隊單已成功送到 TopstepX 掛單池！\n訂單編號：${data.orderId || 'SUCCESS'}`);
+                    syncAccountData();
+                } else {
+                    alert(`❌ JOIN ${side} 失敗：${data.errorMessage || data.detail || '連線錯誤'}`);
+                }
+            } catch (err) {
+                alert("❌ 下單系統連線錯誤：" + err.message);
             }
-            const activePosEl = document.getElementById('tsx-active-position');
-            if (activePosEl) activePosEl.innerHTML = `<span style="color: ${direction==='BUY'?'#81c784':'#e57373'};">${direction} +${qty} @ ${mid} | P&L: +$0.00</span>`;
-            alert(`🎉 委託指令已成功送進 TopstepX 官方交易佇列！\n訂單回報：【FILLED (成交) / LIVE】`);
         }
 
-        function executeJoinOrder(side) {
+        async function executeQuickAction(action) {
+            const account = document.getElementById('account-selector').value;
             const symbol = document.getElementById('chart-symbol').value;
-            const qty = parseInt(document.getElementById('tsx-qty-input').value) || 1;
-            alert(`⚡ 成功以當前最新 ${side === 'BID' ? '買單報價 (Bid)' : '賣單報價 (Ask)'} 投入 ${qty} 手 ${symbol} 進入委託掛單池！`);
+            if (!account) {
+                alert("⚠️ 請先選擇一組 Target Account！");
+                return;
+            }
+
+            if (action === 'CLOSE') {
+                if (!confirm(`🛡️ 確定要向 TopstepX 發送【CLOSE POSITION (即時平倉)】指令，平走帳戶 ${account} 下的 ${symbol} 全部現前部位嗎？`)) return;
+                try {
+                    const res = await fetch('/api/v1/trade/close', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ account_id: parseInt(account), symbol: symbol })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        alert("✅ TopstepX 回報：持倉已成功以現貨市價完全平散！");
+                        syncAccountData();
+                    } else {
+                        alert("❌ 平倉失敗：" + (data.errorMessage || data.detail || "可能目前無對應未了結持倉"));
+                    }
+                } catch(e) { alert("平倉通訊錯誤: " + e.message); }
+            } else if (action === 'FLATTEN_ALL') {
+                if (!confirm(`🔥 【緊急護法核彈警告 - FLATTEN ALL】 🔥\n\n即將為您在帳戶 ${account} 上：\n1. 撤銷該帳號下所有未成交之限價/停損預掛單\n2. 以現貨超高市價無條件平定一體未了結部位！\n\n確定觸發 FLATTEN ALL 大絕？`)) return;
+                try {
+                    const res = await fetch('/api/v1/trade/flatten', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ account_id: parseInt(account), symbol: null })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        alert("🛡️ 【FLATTEN ALL 成功】\n" + (data.message || "一切持倉已悉數隨市價淨空，且全部未成交掛單已撤銷乾淨！"));
+                        syncAccountData();
+                    } else {
+                        alert("❌ FLATTEN 執行報錯：" + (data.errorMessage || data.detail || "未知異常"));
+                    }
+                } catch(e) { alert("FLATTEN 網路通訊失敗: " + e.message); }
+            } else if (action === 'CANCEL' || action === 'CANCEL_ALL') {
+                const targetSym = action === 'CANCEL' ? symbol : null;
+                if (!confirm(`🗑️ 確定撤銷帳戶 ${account} 下 ${targetSym ? targetSym + ' 商品的' : '全體商品之'} 未成交預掛委託單嗎？`)) return;
+                try {
+                    const res = await fetch('/api/v1/trade/cancel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ account_id: parseInt(account), symbol: targetSym })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        alert("🗑️ 撤單完結：" + (data.message || "已由 TopstepX 掛單總簿刪除該帳單。"));
+                        syncAccountData();
+                    } else {
+                        alert("❌ 撤單失敗：" + (data.errorMessage || data.detail || "無法找到目標對稱單"));
+                    }
+                } catch(e) { alert("撤單請求異常: " + e.message); }
+            } else if (action === 'REVERSE') {
+                alert("⚠️ 反手 (REVERSE) 功能為了頂級保險，建議請先按 CLOSE POSITION 釋出單向持倉後再親手按鈕開立對應反向單！");
+            }
         }
 
-        function executeQuickAction(action) {
-            const activePosEl = document.getElementById('tsx-active-position');
-            const tbody = document.getElementById('positions-tbody');
-            if (action === 'CLOSE' || action === 'FLATTEN_ALL') {
-                if (activePosEl) activePosEl.innerText = "No Active Position";
-                if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">當前無持倉與活動委託</td></tr>`;
-                alert(action === 'FLATTEN_ALL' ? "🛡️ 觸發【FLATTEN ALL】一鍵全平！已立即撤銷當前帳戶所有預掛單並以市價平走一切未了結倉位。" : "✅ 持倉已成功以現貨市價平走。");
-            } else if (action === 'REVERSE') {
-                alert("🔄 已執行持倉反向 (REVERSE)：平定當前單向部位並立刻建立相反同等口數部位！");
-            } else if (action === 'CANCEL' || action === 'CANCEL_ALL') {
-                alert("🗑️ 已傳送撤單指令：目前所在商品與帳號下之所有未成交限價/觸價單均已撤銷。");
+        async function syncAccountData() {
+            const account = document.getElementById('account-selector').value;
+            if (!account) return;
+            try {
+                // Fetch live positions from ProjectX Gateway
+                const posRes = await fetch(`/api/v1/trade/positions?account_id=${account}`);
+                const positions = await posRes.json();
+                const activePosEl = document.getElementById('tsx-active-position');
+                const tbody = document.getElementById('positions-tbody');
+                
+                let totalSize = 0;
+                let posHtml = "";
+                if (Array.isArray(positions) && positions.length > 0) {
+                    positions.forEach(pos => {
+                        const size = pos.size || 0;
+                        if (size === 0) return;
+                        totalSize += size;
+                        const posType = pos.type === 1 ? 'LONG' : (pos.type === 2 ? 'SHORT' : pos.type);
+                        const isLong = pos.type === 1 || posType === 'LONG';
+                        const pnlColor = isLong ? 'var(--green-trade)' : 'var(--red-trade)';
+                        const dirLabel = isLong ? '<span style="color: var(--green-trade); font-weight: 700;">BUY (長)</span>' : '<span style="color: var(--red-trade); font-weight: 700;">SELL (短)</span>';
+                        posHtml += `<tr>
+                            <td><strong>${pos.contractDisplayName || pos.contractId || 'CME Contract'}</strong></td>
+                            <td>${dirLabel}</td>
+                            <td>${size} 手</td>
+                            <td>${pos.averagePrice ? Number(pos.averagePrice).toFixed(2) : '市場現營'}</td>
+                            <td>—</td>
+                            <td>OCO 託管中</td>
+                            <td style="color: ${pnlColor}; font-weight: 700;">LIVE</td>
+                            <td><span style="background: rgba(0, 242, 254, 0.2); color: var(--accent-cyan); padding: 2px 6px; border-radius: 4px; font-size: 11px;">Gateway API</span></td>
+                        </tr>`;
+                        if (activePosEl) {
+                            activePosEl.innerHTML = `<span style="color: ${pnlColor};">${isLong ? 'LONG' : 'SHORT'} ${size} @ ${pos.averagePrice || '---'}</span>`;
+                        }
+                    });
+                }
+                if (totalSize === 0) {
+                    if (activePosEl) activePosEl.innerText = "No Active Position";
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">當前無未了結部位與活動委託 (ProjectX 同步過畢)</td></tr>`;
+                } else if (tbody && posHtml) {
+                    tbody.innerHTML = posHtml;
+                }
+            } catch(e) {
+                console.warn("Could not sync position stats:", e);
             }
         }
 
@@ -1391,6 +1522,7 @@
                         statusBadge.innerHTML = `<span style="color: var(--red-trade);">🔴 官方資格狀態：Ineligible / 已關閉 (無法進行新掛單，例如風控重置或考區完結)</span>`;
                     }
                 }
+                syncAccountData();
             }
         }
 

@@ -70,6 +70,21 @@ class RiskConfigUpdate(BaseModel):
 class ManualOverrideUpdate(BaseModel):
     enabled: bool
 
+class PlaceOrderRequestModel(BaseModel):
+    account_id: int
+    symbol: str
+    side: str  # BUY / SELL / BID / ASK
+    quantity: int = 1
+    order_type: str = "MARKET"
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    stop_loss_ticks: Optional[int] = None
+    take_profit_ticks: Optional[int] = None
+
+class ContractPositionRequestModel(BaseModel):
+    account_id: int
+    symbol: Optional[str] = None
+
 # Locate frontend directory robustly
 possible_frontend_paths = [
     os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend")),
@@ -169,14 +184,13 @@ async def receive_tradingview_webhook(signal: WebhookSignal):
         target_acc = signal.account_id
 
         # 2. Send OCO Order to TopstepX Gateway
-        result = await projectx_client.place_order_with_oco(
-            account_id=target_acc,
-            contract_symbol=signal.ticker,
+        result = await projectx_client.place_order(
+            account_id=int(target_acc),
+            symbol=signal.ticker,
             side=signal.action,
             quantity=signal.contracts,
             order_type="MARKET",
-            stop_loss_price=signal.stop_loss,
-            take_profit_price=signal.take_profit
+            stop_price=signal.stop_loss
         )
 
         return {"status": "EXECUTED", "trade": result}
@@ -185,3 +199,79 @@ async def receive_tradingview_webhook(signal: WebhookSignal):
         raise HTTPException(status_code=400, detail=str(rve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Order execution error: {e}")
+
+@app.post("/api/v1/trade/order")
+async def place_trade_order(req: PlaceOrderRequestModel):
+    """Place real order directly to ProjectX Gateway /api/Order/place."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    try:
+        if not risk_manager.manual_override:
+            risk_manager.validate_order(contracts=req.quantity, side=req.side)
+    except RiskViolationError as rve:
+        raise HTTPException(status_code=400, detail=str(rve))
+        
+    res = await projectx_client.place_order(
+        account_id=req.account_id,
+        symbol=req.symbol,
+        side=req.side,
+        quantity=req.quantity,
+        order_type=req.order_type,
+        limit_price=req.limit_price,
+        stop_price=req.stop_price,
+        stop_loss_ticks=req.stop_loss_ticks,
+        take_profit_ticks=req.take_profit_ticks
+    )
+    if not res.get("success", True):
+        raise HTTPException(status_code=400, detail=res.get("errorMessage", "Order failed"))
+    return res
+
+@app.post("/api/v1/trade/close")
+async def close_contract_position(req: ContractPositionRequestModel):
+    """Close open position for a contract on TopstepX."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    if not req.symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required to close position.")
+    res = await projectx_client.close_position(account_id=req.account_id, symbol=req.symbol)
+    return res
+
+@app.post("/api/v1/trade/cancel")
+async def cancel_orders(req: ContractPositionRequestModel):
+    """Cancel all open orders for an account / symbol."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    res = await projectx_client.cancel_all_orders(account_id=req.account_id, symbol=req.symbol)
+    return res
+
+@app.post("/api/v1/trade/flatten")
+async def flatten_all_positions_orders(req: ContractPositionRequestModel):
+    """Flatten All: cancel open orders and close open positions on TopstepX."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    res = await projectx_client.flatten_all(account_id=req.account_id, symbol=req.symbol)
+    return res
+
+@app.get("/api/v1/trade/positions")
+async def get_trade_positions(account_id: int = Query(..., description="TopstepX Account ID")):
+    """Fetch real open positions directly from ProjectX API."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    positions = await projectx_client.get_open_positions(account_id)
+    return positions
+
+@app.get("/api/v1/trade/orders")
+async def get_trade_orders(account_id: int = Query(..., description="TopstepX Account ID")):
+    """Fetch real open orders directly from ProjectX API."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    orders = await projectx_client.get_open_orders(account_id)
+    return orders
+
+@app.get("/api/v1/trade/history")
+async def get_trade_history(account_id: int = Query(..., description="TopstepX Account ID"), limit: int = 50):
+    """Fetch real executed trades directly from ProjectX API."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
+    trades = await projectx_client.get_recent_trades(account_id, limit=limit)
+    return trades
