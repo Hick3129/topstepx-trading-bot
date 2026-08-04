@@ -1,16 +1,25 @@
 import os
 import sys
 import time
+import logging
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+from dotenv import load_dotenv
+
+# Load credentials securely from backend/.env
+env_path = os.path.join(os.path.dirname(__file__), "../.env")
+load_dotenv(dotenv_path=env_path)
 
 from app.services.risk_manager import RiskManager, RiskViolationError
 from app.services.ict_engine import ICTEngine
 from app.services.projectx_client import ProjectXClient
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("topstepx_bot")
 
 app = FastAPI(
     title="TopstepX Trading Bot API",
@@ -29,7 +38,24 @@ app.add_middleware(
 
 risk_manager = RiskManager(max_daily_loss=1000.0, max_contracts=5)
 ict_engine = ICTEngine(use_kill_zones=True)
-projectx_client = ProjectXClient()
+
+# Initialize ProjectX Gateway Client with environment credentials
+api_key = os.getenv("TOPSTEPX_API_KEY", "")
+username = os.getenv("TOPSTEPX_USERNAME", "hick3129")
+base_url = os.getenv("PROJECTX_BASE_URL", "https://gateway.projectx.com")
+
+projectx_client = ProjectXClient(base_url=base_url)
+
+@app.on_event("startup")
+async def startup_event():
+    """Attempt initial authentication handshake with TopstepX ProjectX Gateway."""
+    if api_key:
+        logger.info("Attempting TopstepX ProjectX Gateway API authentication...")
+        success = await projectx_client.authenticate(username=username, api_key=api_key)
+        if success:
+            logger.info("✓ TopstepX API Key authenticated successfully!")
+        else:
+            logger.warning("TopstepX API Auth pending or invalid credentials, running in copilot mode.")
 
 class WebhookSignal(BaseModel):
     ticker: str
@@ -75,6 +101,7 @@ def get_health():
     return {
         "status": "ONLINE",
         "system": "TopstepX Hybrid Trading Engine",
+        "api_connected": projectx_client.is_connected,
         "is_locked": risk_manager.is_locked,
         "manual_override": risk_manager.manual_override
     }
@@ -89,10 +116,8 @@ async def get_projectx_market_bars(
     ProjectX Gateway Datafeed Provider for TradingView Charting Engine.
     Fetches real-time & historical OHLCV bars directly from TopstepX ProjectX Gateway API.
     """
-    # Fetch bars from ProjectX Gateway Client
     raw_bars = await projectx_client.get_market_bars(symbol=symbol, timeframe=timeframe, limit=limit)
     
-    # If API not connected yet, return smooth realistic mock bars for demonstration
     if not raw_bars:
         now = int(time.time())
         step = 60 if timeframe == "1m" else 300

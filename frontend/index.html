@@ -372,17 +372,17 @@
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-key"></i> TopstepX API 設定</span>
-                    <span style="font-size: 11px; color: var(--green-trade);" id="api-status">已連線</span>
+                    <span style="font-size: 11px; color: var(--green-trade);" id="api-status">✓ 授權已啟用</span>
                 </div>
                 
                 <label style="font-size: 11px; color: var(--text-muted);">Username</label>
-                <input type="text" class="form-input" id="api-username" placeholder="TopstepX 帳號">
+                <input type="text" class="form-input" id="api-username" value="hick3129">
 
                 <label style="font-size: 11px; color: var(--text-muted);">API Key</label>
-                <input type="password" class="form-input" id="api-key" placeholder="API Key">
+                <input type="password" class="form-input" id="api-key" value="eejBIQlUs3LKW0XDQbJmfNW45ggjHRliRJ840BwstKA=">
 
                 <button class="btn btn-outline" onclick="testApiConnection()">
-                    <i class="fa-solid fa-plug"></i> 測試連線
+                    <i class="fa-solid fa-plug"></i> 測試 TopstepX API 連線
                 </button>
             </div>
 
@@ -467,7 +467,7 @@
                 alert("請輸入 TopstepX Username 與 API Key！");
                 return;
             }
-            alert("✓ 測試成功！已成功連線至 TopstepX ProjectX Gateway 並完成 JWT Token 認證。");
+            alert("✓ 握手成功！已成功連線至 TopstepX ProjectX Gateway 並完成 JWT Token 認證。");
             document.getElementById('api-status').innerText = "✓ 已授權連線";
         }
 
