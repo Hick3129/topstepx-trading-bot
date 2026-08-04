@@ -1,0 +1,15 @@
+# Environment & Credentials
+.env
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+
+# System
+.DS_Store
+*.log
