@@ -10,10 +10,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Official TradingView Advanced Widget JS -->
-    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <!-- Official TradingView Lightweight Charts JS -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 
     <style>
+        .btn-tf { background: transparent; color: var(--text-muted); border: none; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
+        .btn-tf.active, .btn-tf:hover { background: rgba(0, 242, 254, 0.15); color: var(--accent-cyan); font-weight: 700; }
         :root {
             --bg-primary: #0b0e14;
             --bg-secondary: #131722;
@@ -319,9 +321,41 @@
     <!-- Workspace -->
     <div class="workspace">
         
-        <!-- Left: Full TradingView Chart -->
-        <div class="chart-area">
-            <div id="tradingview_widget"></div>
+        <!-- Left: Full TradingView Chart Powered by ProjectX Gateway API -->
+        <div class="chart-area" style="display: flex; flex-direction: column;">
+            <div class="chart-header" style="background: #181c27; border-bottom: 1px solid var(--border-color); padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; height: 48px; flex-shrink: 0;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%); color: #0b0e14; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid fa-bolt"></i> PROJECTX REAL-TIME FEED
+                    </span>
+                    <select id="chart-symbol" class="form-select" style="width: auto; margin: 0; padding: 4px 10px; font-size: 13px; font-weight: 700; color: #00f2fe; border-color: rgba(0, 242, 254, 0.3);" onchange="changeSymbolOrTimeframe()">
+                        <option value="NQ">NQ (小納斯達克 E-mini NASDAQ-100)</option>
+                        <option value="MNQ">MNQ (微型納斯達克 Micro NQ)</option>
+                        <option value="ES">ES (小S&P 500 E-mini S&P)</option>
+                        <option value="MES">MES (微型S&P 500 Micro ES)</option>
+                        <option value="CL">CL (紐約原油期貨 Crude Oil)</option>
+                        <option value="GC">GC (黃金期貨 Gold)</option>
+                    </select>
+                    <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
+                        <button class="btn btn-tf active" data-tf="1m" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('1m', this)">1m</button>
+                        <button class="btn btn-tf" data-tf="5m" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('5m', this)">5m</button>
+                        <button class="btn btn-tf" data-tf="15m" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('15m', this)">15m</button>
+                        <button class="btn btn-tf" data-tf="1h" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('1h', this)">1H</button>
+                        <button class="btn btn-tf" data-tf="1d" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('1d', this)">1D</button>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px; font-size: 12px;">
+                    <span id="chart-status-indicator" style="color: var(--green-trade); font-weight: 600;"><i class="fa-solid fa-circle-check"></i> CME 數據直接源 (TopstepX)</span>
+                    <button class="btn btn-outline" style="width: auto; padding: 3px 10px; font-size: 11px;" onclick="fetchProjectXBars()">
+                        <i class="fa-solid fa-rotate"></i> 更新 K 線
+                    </button>
+                </div>
+            </div>
+            <div id="tv-lightweight-chart" style="flex: 1; width: 100%; position: relative;">
+                <div id="chart-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--accent-cyan); font-weight: 600; font-size: 14px; z-index: 10; background: rgba(19, 23, 34, 0.9); padding: 12px 24px; border-radius: 8px; border: 1px solid var(--accent-cyan); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-spinner fa-spin"></i> 正在自 ProjectX Gateway 載入官方 K 線序列...
+                </div>
+            </div>
         </div>
 
         <!-- Bottom: Positions & Orders -->
@@ -465,32 +499,114 @@
 
     </div>
 
-    <!-- Official TradingView Advanced Widget Embed Script -->
+    <!-- Official TradingView Lightweight Charts Engine Powered by ProjectX Gateway API -->
     <script type="text/javascript">
-        new TradingView.widget({
-            "autosize": true,
-            "symbol": "OANDA:NAS100USD",
-            "interval": "1",
-            "timezone": "Asia/Taipei",
-            "theme": "dark",
-            "style": "1",
-            "locale": "zh_TW",
-            "toolbar_bg": "#131722",
-            "enable_publishing": false,
-            "hide_side_toolbar": false,
-            "allow_symbol_change": true,
-            "details": true,
-            "hotlist": true,
-            "calendar": true,
-            "studies": [
-                "STD;VWAP",
-                "STD;RSI"
-            ],
-            "container_id": "tradingview_widget"
-        });
+        let chart, candleSeries;
+        let currentTimeframe = "1m";
+        let autoRefreshInterval = null;
 
-        // Load Accounts automatically on page load
+        function initProjectXChart() {
+            const container = document.getElementById('tv-lightweight-chart');
+            const height = container.clientHeight || 500;
+            const width = container.clientWidth || 800;
+            
+            chart = LightweightCharts.createChart(container, {
+                width: width,
+                height: height,
+                layout: {
+                    background: { type: 'solid', color: '#131722' },
+                    textColor: '#d1d4dc',
+                    fontSize: 12,
+                    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                    horzLines: { color: 'rgba(255, 255, 255, 0.05)' }
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                },
+                timeScale: {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    timeVisible: true,
+                    secondsVisible: false
+                }
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#089981',
+                downColor: '#f23645',
+                borderDownColor: '#f23645',
+                borderUpColor: '#089981',
+                wickDownColor: '#f23645',
+                wickUpColor: '#089981'
+            });
+
+            window.addEventListener('resize', () => {
+                if (chart && container) {
+                    chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+                }
+            });
+
+            fetchProjectXBars();
+
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(() => fetchProjectXBars(true), 10000);
+        }
+
+        async function fetchProjectXBars(silent = false) {
+            const symbol = document.getElementById('chart-symbol').value;
+            const loadingEl = document.getElementById('chart-loading');
+            const indEl = document.getElementById('chart-status-indicator');
+            if (!silent && loadingEl) loadingEl.style.display = "flex";
+
+            try {
+                const res = await fetch(`/api/v1/market/bars?symbol=${symbol}&timeframe=${currentTimeframe}&limit=200`);
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                const bars = await res.json();
+                
+                if (bars && bars.length > 0) {
+                    const uniqueBars = [];
+                    const seenTimes = new Set();
+                    bars.forEach(b => {
+                        if (!seenTimes.has(b.time)) {
+                            seenTimes.add(b.time);
+                            uniqueBars.push(b);
+                        }
+                    });
+                    uniqueBars.sort((a, b) => a.time - b.time);
+
+                    candleSeries.setData(uniqueBars);
+                    if (!silent && chart) chart.timeScale().fitContent();
+                    if (indEl) indEl.innerHTML = `<span style="color: var(--green-trade); font-weight: 600;"><i class="fa-solid fa-circle-check"></i> ProjectX 官方數據源 (${symbol} / ${currentTimeframe})</span>`;
+                } else {
+                    if (indEl) indEl.innerHTML = `<span style="color: var(--warning-orange);"><i class="fa-solid fa-triangle-exclamation"></i> 暫無K線回傳 (待同步)</span>`;
+                }
+            } catch (err) {
+                console.error("Error fetching ProjectX bars:", err);
+                if (indEl) indEl.innerHTML = `<span style="color: var(--red-trade);"><i class="fa-solid fa-circle-xmark"></i> 讀取 K 線失敗</span>`;
+            } finally {
+                if (loadingEl) loadingEl.style.display = "none";
+            }
+        }
+
+        function setTimeframe(tf, btn) {
+            currentTimeframe = tf;
+            document.querySelectorAll('.btn-tf').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            fetchProjectXBars();
+        }
+
+        function changeSymbolOrTimeframe() {
+            fetchProjectXBars();
+        }
+
+        // Load Accounts and ProjectX Chart automatically on page load
         window.addEventListener('DOMContentLoaded', async () => {
+            initProjectXChart();
             fetchAccounts();
         });
 

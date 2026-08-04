@@ -123,32 +123,14 @@ async def refresh_user_accounts(only_active: bool = Query(True, description="Fil
 async def get_projectx_market_bars(
     symbol: str = Query("NQ", description="Futures Symbol e.g. NQ, MNQ, ES"),
     timeframe: str = Query("1m", description="Timeframe e.g. 1m, 5m, 1h"),
-    limit: int = Query(100, description="Number of bars")
+    limit: int = Query(150, description="Number of bars")
 ) -> List[Dict[str, Any]]:
-    raw_bars = await projectx_client.get_market_bars(symbol=symbol, timeframe=timeframe, limit=limit)
+    """Fetch real CME futures K-line bars directly from TopstepX ProjectX Gateway API."""
+    if not projectx_client.jwt_token and username and api_key:
+        await projectx_client.authenticate(username=username, api_key=api_key)
     
-    if not raw_bars:
-        now = int(time.time())
-        step = 60 if timeframe == "1m" else 300
-        base_price = 19500.0
-        mock_bars = []
-        for i in range(limit, 0, -1):
-            t = now - i * step
-            o = base_price + (i % 7 - 3.5) * 1.5
-            h = o + (i % 5) * 2.0
-            l = o - (i % 4) * 1.8
-            c = (o + h + l) / 3
-            mock_bars.append({
-                "time": t,
-                "open": round(o, 2),
-                "high": round(h, 2),
-                "low": round(l, 2),
-                "close": round(c, 2),
-                "volume": 120 + (i % 30) * 5
-            })
-        return mock_bars
-    
-    return raw_bars
+    bars = await projectx_client.get_market_bars(symbol=symbol, timeframe=timeframe, limit=limit)
+    return bars
 
 @app.get("/api/v1/risk/status")
 def get_risk_status():

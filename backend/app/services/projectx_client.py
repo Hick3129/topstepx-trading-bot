@@ -1,6 +1,7 @@
 import httpx
 import logging
 from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class ProjectXClient:
         self.jwt_token: Optional[str] = None
         self.is_connected: bool = False
         self.accounts: List[Dict[str, Any]] = []
+        self.contract_map: Dict[str, str] = {}
 
     async def authenticate(self, username: str, api_key: str) -> bool:
         """
@@ -97,27 +99,113 @@ class ProjectXClient:
 
         return self.accounts
 
-    async def get_market_bars(self, symbol: str = "NQ", timeframe: str = "1m", limit: int = 100) -> List[Dict[str, Any]]:
-        """Fetch market bars."""
+    async def resolve_contract_id(self, symbol: str) -> Optional[str]:
+        """Resolve a general ticker symbol (e.g., NQ, MNQ, ES) to official ProjectX Contract ID."""
+        upper_sym = symbol.upper()
+        if upper_sym in self.contract_map:
+            return self.contract_map[upper_sym]
+
         if not self.jwt_token:
+            if self.username and self.api_key:
+                await self.authenticate(self.username, self.api_key)
+            if not self.jwt_token:
+                return None
+
+        headers = {"Authorization": f"Bearer {self.jwt_token}", "Content-Type": "application/json"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.post(f"{self.base_url}/api/Contract/search", json={"live": False, "searchText": upper_sym}, headers=headers)
+                if res.status_code == 200:
+                    data = res.json()
+                    contracts = data.get("contracts", []) if isinstance(data, dict) and "contracts" in data else (data if isinstance(data, list) else [])
+                    if contracts:
+                        # Find best match (active contract starting with symbol or just first active)
+                        best = next((c for c in contracts if c.get("activeContract", True) and c.get("name", "").startswith(upper_sym[:2])), contracts[0])
+                        cid = best.get("id") or best.get("contractId")
+                        if cid:
+                            self.contract_map[upper_sym] = cid
+                            logger.info(f"✓ Resolved symbol {upper_sym} to ProjectX Contract ID: {cid} ({best.get('description')})")
+                            return cid
+        except Exception as e:
+            logger.error(f"Error resolving contract ID for {symbol}: {e}")
+        return None
+
+    async def get_market_bars(self, symbol: str = "NQ", timeframe: str = "1m", limit: int = 150) -> List[Dict[str, Any]]:
+        """Fetch historical and live market K-line bars directly from official ProjectX Gateway API."""
+        contract_id = await self.resolve_contract_id(symbol)
+        if not contract_id or not self.jwt_token:
+            logger.warning(f"Could not fetch bars for {symbol}: missing token or contract_id")
             return []
 
-        headers = {"Authorization": f"Bearer {self.jwt_token}"}
-        params = {"symbol": symbol, "timeframe": timeframe, "limit": limit}
+        headers = {"Authorization": f"Bearer {self.jwt_token}", "Content-Type": "application/json"}
+        
+        # Map timeframe string to ProjectX units: 1=Second, 2=Minute, 3=Hour, 4=Day
+        unit = 2  # Default minute
+        unit_num = 1
+        tf = timeframe.lower()
+        if tf == "1m":
+            unit, unit_num = 2, 1
+        elif tf == "5m":
+            unit, unit_num = 2, 5
+        elif tf == "15m":
+            unit, unit_num = 2, 15
+        elif tf in ("1h", "60m"):
+            unit, unit_num = 3, 1
+        elif tf in ("1d", "daily", "d"):
+            unit, unit_num = 4, 1
+
+        now = datetime.now(timezone.utc)
+        days_back = 3 if unit == 2 else (14 if unit == 3 else 90)
+        start_time = now - timedelta(days=days_back)
+
+        payload = {
+            "contractId": contract_id,
+            "live": False,
+            "startTime": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "endTime": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "unit": unit,
+            "unitNumber": unit_num,
+            "limit": limit,
+            "includePartialBar": True
+        }
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(
-                    f"{self.base_url}/api/v1/market/bars",
-                    headers=headers,
-                    params=params
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/api/History/retrieveBars",
+                    json=payload,
+                    headers=headers
                 )
                 if response.status_code == 200:
-                    return response.json()
-                return []
+                    data = response.json()
+                    raw_bars = data.get("bars", []) if isinstance(data, dict) and "bars" in data else (data if isinstance(data, list) else [])
+                    
+                    # ProjectX returns bars newest-first; TradingView requires chronological order (oldest-first)
+                    sorted_bars = sorted(raw_bars, key=lambda x: x.get("t", ""))
+                    
+                    formatted_bars = []
+                    for b in sorted_bars:
+                        t_str = b.get("t")
+                        if not t_str:
+                            continue
+                        # Convert ISO timestamp string to UNIX seconds
+                        ts_sec = int(datetime.fromisoformat(t_str).timestamp())
+                        formatted_bars.append({
+                            "time": ts_sec,
+                            "open": round(float(b.get("o", 0)), 2),
+                            "high": round(float(b.get("h", 0)), 2),
+                            "low": round(float(b.get("l", 0)), 2),
+                            "close": round(float(b.get("c", 0)), 2),
+                            "volume": round(float(b.get("v", 0) or 0), 2)
+                        })
+                    logger.info(f"✓ Successfully pulled {len(formatted_bars)} K-line bars for {symbol} ({contract_id}) from ProjectX API.")
+                    return formatted_bars
+                else:
+                    logger.error(f"ProjectX retrieveBars failed ({response.status_code}): {response.text}")
         except Exception as e:
-            logger.error(f"Error fetching ProjectX market bars: {e}")
-            return []
+            logger.error(f"Error fetching ProjectX market bars for {symbol}: {e}")
+
+        return []
 
     async def place_order_with_oco(
         self,
