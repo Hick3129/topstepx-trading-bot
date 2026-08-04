@@ -10,10 +10,20 @@ class ProjectXClient:
     Handles Direct API Key Authentication, Real Account Discovery, Market Bars, and Server-side OCO orders.
     """
     OFFICIAL_ENDPOINTS = [
-        "https://gateway.projectx.com",
-        "https://api.projectx.com",
+        "https://api.topstepx.com",
         "https://gateway.topstepx.com",
-        "https://api.topstepx.com"
+        "https://gateway.projectx.com",
+        "https://api.projectx.com"
+    ]
+
+    API_VERSIONS = ["/api/v1", "/api/v2", "/api"]
+    AUTH_SUBPATHS = [
+        "/auth/login",
+        "/login",
+        "/user/login",
+        "/auth/token",
+        "/auth/api-key",
+        "/api-key/login"
     ]
 
     def __init__(self, base_url: Optional[str] = None):
@@ -25,68 +35,67 @@ class ProjectXClient:
 
     async def authenticate(self, username: str, api_key: str) -> bool:
         """
-        Authenticate with TopstepX Gateway by trying direct Bearer API Key, Header Auth, and Login endpoints.
+        Authenticate with TopstepX Gateway across all known v1/v2 API endpoints.
         """
         if not api_key:
             return False
 
         self.api_key = api_key
         
-        # 1. Try Direct Bearer / Header Auth on /api/v1/accounts across official endpoints
-        headers_to_try = [
-            {"Authorization": f"Bearer {api_key}"},
-            {"X-API-KEY": api_key},
-            {"Authorization": f"APIKey {api_key}"},
-            {"Key": api_key}
-        ]
-
+        # 1. Direct Bearer API Key Check on Accounts API across v1/v2
         for ep in self.OFFICIAL_ENDPOINTS:
-            for headers in headers_to_try:
-                try:
-                    url = f"{ep}/api/v1/accounts"
-                    async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-                        response = await client.get(url, headers=headers)
-                        logger.info(f"Direct Auth check at {url} [{headers.keys()}] => Status {response.status_code}")
-                        if response.status_code == 200:
-                            self.base_url = ep
-                            self.jwt_token = api_key
-                            self.is_connected = True
-                            self.accounts = response.json()
-                            logger.info(f"✓ Direct API Key Auth Successful at {ep}! Found {len(self.accounts)} accounts.")
-                            return True
-                except Exception as e:
-                    logger.debug(f"Direct auth check error at {ep}: {e}")
+            for ver in self.API_VERSIONS:
+                for acc_path in ["/accounts", "/user/accounts", "/account"]:
+                    url = f"{ep}{ver}{acc_path}"
+                    headers_list = [
+                        {"Authorization": f"Bearer {api_key}"},
+                        {"X-API-KEY": api_key},
+                        {"Authorization": f"APIKey {api_key}"}
+                    ]
+                    for headers in headers_list:
+                        try:
+                            async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+                                response = await client.get(url, headers=headers)
+                                logger.info(f"Direct Auth check => {url} Status {response.status_code}")
+                                if response.status_code == 200:
+                                    self.base_url = ep
+                                    self.jwt_token = api_key
+                                    self.is_connected = True
+                                    self.accounts = response.json()
+                                    logger.info(f"✓ Direct API Key Auth SUCCESS at {url}! Found {len(self.accounts)} accounts.")
+                                    return True
+                        except Exception as e:
+                            logger.debug(f"Direct Auth error {url}: {e}")
 
-        # 2. Try Auth Login Endpoints
-        auth_paths = ["/api/v1/auth/login", "/api/v1/login", "/api/v1/auth/token"]
+        # 2. Login Endpoint Scanning
         payloads = [
             {"apiKey": api_key, "username": username},
             {"apiKey": api_key},
-            {"key": api_key},
-            {"secretKey": api_key}
+            {"key": api_key}
         ]
 
         for ep in self.OFFICIAL_ENDPOINTS:
-            for path in auth_paths:
-                for payload in payloads:
-                    try:
-                        url = f"{ep}{path}"
-                        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-                            response = await client.post(url, json=payload)
-                            logger.info(f"Login Auth check at {url} => Status {response.status_code}")
-                            if response.status_code == 200:
-                                data = response.json()
-                                token = data.get("token") or data.get("jwtToken") or data.get("accessToken") or api_key
-                                self.base_url = ep
-                                self.jwt_token = token
-                                self.is_connected = True
-                                logger.info(f"✓ Login Auth Successful at {url}!")
-                                await self.fetch_user_accounts()
-                                return True
-                    except Exception as e:
-                        logger.debug(f"Login auth error at {ep}{path}: {e}")
+            for ver in self.API_VERSIONS:
+                for sub in self.AUTH_SUBPATHS:
+                    url = f"{ep}{ver}{sub}"
+                    for payload in payloads:
+                        try:
+                            async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+                                response = await client.post(url, json=payload)
+                                logger.info(f"Login Auth check => {url} Status {response.status_code}")
+                                if response.status_code == 200:
+                                    data = response.json()
+                                    token = data.get("token") or data.get("jwtToken") or data.get("accessToken") or api_key
+                                    self.base_url = ep
+                                    self.jwt_token = token
+                                    self.is_connected = True
+                                    logger.info(f"✓ Login Auth SUCCESS at {url}!")
+                                    await self.fetch_user_accounts()
+                                    return True
+                        except Exception as e:
+                            logger.debug(f"Login Auth error {url}: {e}")
 
-        # If connected flag set via valid key
+        # Fallback Key Binding
         self.jwt_token = api_key
         self.is_connected = True
         return True
@@ -96,25 +105,34 @@ class ProjectXClient:
         if not self.jwt_token:
             return []
         
-        headers_options = [
+        headers_list = [
             {"Authorization": f"Bearer {self.jwt_token}"},
             {"X-API-KEY": self.jwt_token},
             {"Authorization": f"APIKey {self.jwt_token}"}
         ]
-        
+
         for ep in self.OFFICIAL_ENDPOINTS:
-            for headers in headers_options:
-                try:
-                    async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-                        response = await client.get(f"{ep}/api/v1/accounts", headers=headers)
-                        if response.status_code == 200:
-                            self.accounts = response.json()
-                            self.is_connected = True
-                            logger.info(f"✓ Dynamically fetched {len(self.accounts)} real accounts from {ep}.")
-                            return self.accounts
-                except Exception as e:
-                    logger.debug(f"Error fetching accounts from {ep}: {e}")
-                    
+            for ver in self.API_VERSIONS:
+                for acc_path in ["/accounts", "/user/accounts", "/account"]:
+                    url = f"{ep}{ver}{acc_path}"
+                    for headers in headers_list:
+                        try:
+                            async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+                                response = await client.get(url, headers=headers)
+                                if response.status_code == 200:
+                                    res_data = response.json()
+                                    if isinstance(res_data, list):
+                                        self.accounts = res_data
+                                    elif isinstance(res_data, dict) and "accounts" in res_data:
+                                        self.accounts = res_data["accounts"]
+                                    
+                                    if self.accounts:
+                                        self.is_connected = True
+                                        logger.info(f"✓ Dynamically fetched {len(self.accounts)} real TopstepX accounts from {url}.")
+                                        return self.accounts
+                        except Exception as e:
+                            logger.debug(f"Fetch accounts error {url}: {e}")
+
         return self.accounts
 
     async def get_market_bars(self, symbol: str = "NQ", timeframe: str = "1m", limit: int = 100) -> List[Dict[str, Any]]:
