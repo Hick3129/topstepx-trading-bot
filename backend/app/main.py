@@ -2,7 +2,8 @@ import os
 import sys
 import time
 import logging
-from fastapi import FastAPI, HTTPException, Query
+import asyncio
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -48,14 +49,10 @@ projectx_client = ProjectXClient(base_url=base_url)
 
 @app.on_event("startup")
 async def startup_event():
-    """Attempt initial authentication handshake with TopstepX ProjectX Gateway."""
+    """Non-blocking background startup task."""
+    logger.info("TopstepX Hybrid Engine STARTED & Listening on http://127.0.0.1:8000")
     if api_key:
-        logger.info("Attempting TopstepX ProjectX Gateway API authentication...")
-        success = await projectx_client.authenticate(username=username, api_key=api_key)
-        if success:
-            logger.info("✓ TopstepX API Key authenticated successfully!")
-        else:
-            logger.warning("TopstepX API Auth pending or invalid credentials, running in copilot mode.")
+        asyncio.create_task(projectx_client.authenticate(username=username, api_key=api_key))
 
 class WebhookSignal(BaseModel):
     account_id: str
@@ -109,16 +106,13 @@ def get_health():
 
 @app.get("/api/v1/accounts")
 async def get_user_accounts():
-    """Fetch TopstepX trading accounts list owned by the user 100% dynamically from TopstepX API."""
-    if not projectx_client.is_connected and api_key:
-        await projectx_client.authenticate(username=username, api_key=api_key)
-    
+    """Fetch TopstepX trading accounts list owned by the user."""
     accounts = await projectx_client.fetch_user_accounts()
     return accounts
 
 @app.post("/api/v1/accounts/refresh")
 async def refresh_user_accounts():
-    """Trigger manual re-authentication and fetch fresh real accounts from TopstepX."""
+    """Trigger non-blocking background re-authentication and fetch fresh real accounts."""
     success = await projectx_client.authenticate(username=username, api_key=api_key)
     accounts = await projectx_client.fetch_user_accounts()
     return {"status": "SUCCESS" if success else "FAILED", "accounts": accounts}
