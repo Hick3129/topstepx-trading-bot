@@ -346,7 +346,7 @@
                         <button class="btn btn-tf" data-tf="1h" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('1h', this)">1H</button>
                         <button class="btn btn-tf" data-tf="1d" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="setTimeframe('1d', this)">1D</button>
                     </div>
-                    <span style="color: #26a69a; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;"><i class="fa-solid fa-chart-simple"></i> 附成交量與極速 1.8s 同步</span>
+                    <span style="color: #26a69a; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;" title="完全同步 TopstepX 與 TradingView 控制邏輯：在右側價格數值滾輪為垂直放大縮小、可拖拉價格與時間軸、在價格區雙擊立即自動排版對齊！"><i class="fa-solid fa-wand-magic-sparkles"></i> 支援 TV 滾輪直拉與雙擊回正</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; flex-wrap: wrap;">
                     <button class="btn btn-outline" style="width: auto; padding: 3px 8px; font-size: 11px;" onclick="zoomChart(1)" title="放大 K 線寬度"><i class="fa-solid fa-magnifying-glass-plus"></i> 放大</button>
@@ -535,8 +535,27 @@
                 crosshair: {
                     mode: LightweightCharts.CrosshairMode.Normal,
                 },
+                handleScale: {
+                    mouseWheel: true,
+                    pinch: true,
+                    axisPressedMouseMove: {
+                        time: true,
+                        price: true
+                    },
+                    axisDoubleClickReset: {
+                        time: true,
+                        price: true
+                    }
+                },
+                handleScroll: {
+                    mouseWheel: true,
+                    pressedMouseMove: true,
+                    horzTouchDrag: true,
+                    vertTouchDrag: true
+                },
                 rightPriceScale: {
                     borderColor: 'rgba(255, 255, 255, 0.1)',
+                    autoScale: true,
                     scaleMargins: {
                         top: 0.05,
                         bottom: 0.25,
@@ -569,6 +588,50 @@
                     top: 0.76, // sits in bottom 24% of height
                     bottom: 0,
                 },
+            });
+
+            // Native TradingView & TopstepX Interactive Controls Override
+            let priceScaleMarginTop = 0.05;
+            let priceScaleMarginBottom = 0.25;
+
+            container.addEventListener('wheel', (e) => {
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                // If cursor is hovering over Right Price Scale (approx rightmost 75px)
+                if (mouseX > container.clientWidth - 75) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Scrolling up expands candle height (decreases margin), scrolling down shrinks candle height
+                    const step = e.deltaY < 0 ? -0.03 : 0.03;
+                    priceScaleMarginTop = Math.max(0.01, Math.min(0.45, priceScaleMarginTop + step));
+                    priceScaleMarginBottom = Math.max(0.01, Math.min(0.45, priceScaleMarginBottom + step));
+
+                    chart.priceScale('right').applyOptions({
+                        autoScale: false,
+                        scaleMargins: {
+                            top: priceScaleMarginTop,
+                            bottom: priceScaleMarginBottom,
+                        }
+                    });
+                }
+            }, { passive: false });
+
+            // Double click anywhere on Right Price Scale resets autoscale, matching TopstepX
+            container.addEventListener('dblclick', (e) => {
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                if (mouseX > container.clientWidth - 75) {
+                    priceScaleMarginTop = 0.05;
+                    priceScaleMarginBottom = 0.25;
+                    chart.priceScale('right').applyOptions({
+                        autoScale: true,
+                        scaleMargins: {
+                            top: priceScaleMarginTop,
+                            bottom: priceScaleMarginBottom,
+                        }
+                    });
+                }
             });
 
             window.addEventListener('resize', () => {
@@ -648,6 +711,13 @@
 
         function resetChartZoom() {
             if (!chart) return;
+            chart.priceScale('right').applyOptions({
+                autoScale: true,
+                scaleMargins: {
+                    top: 0.05,
+                    bottom: 0.25,
+                }
+            });
             chart.timeScale().fitContent();
             currentBarSpacing = 6;
         }
