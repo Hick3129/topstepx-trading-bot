@@ -105,18 +105,18 @@ def get_health():
     }
 
 @app.get("/api/v1/accounts")
-async def get_user_accounts():
+async def get_user_accounts(only_active: bool = Query(True, description="Filter only active trading accounts vs all historical accounts")):
     """Fetch REAL TopstepX trading accounts owned by user directly from ProjectX API."""
-    if not projectx_client.accounts and username and api_key:
+    if not projectx_client.jwt_token and username and api_key:
         await projectx_client.authenticate(username=username, api_key=api_key)
-    accounts = await projectx_client.fetch_user_accounts()
+    accounts = await projectx_client.fetch_user_accounts(only_active=only_active)
     return accounts
 
 @app.post("/api/v1/accounts/refresh")
-async def refresh_user_accounts():
+async def refresh_user_accounts(only_active: bool = Query(True, description="Filter only active trading accounts vs all historical accounts")):
     """Trigger real re-authentication and fetch fresh real accounts from TopstepX."""
     success = await projectx_client.authenticate(username=username, api_key=api_key)
-    accounts = await projectx_client.fetch_user_accounts()
+    accounts = await projectx_client.fetch_user_accounts(only_active=only_active)
     return {"status": "SUCCESS" if success else "FAILED", "accounts": accounts}
 
 @app.get("/api/v1/market/bars")

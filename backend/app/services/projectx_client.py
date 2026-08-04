@@ -58,9 +58,10 @@ class ProjectXClient:
         self.is_connected = False
         return False
 
-    async def fetch_user_accounts(self) -> List[Dict[str, Any]]:
+    async def fetch_user_accounts(self, only_active: bool = True) -> List[Dict[str, Any]]:
         """
         Fetch real TopstepX trading accounts directly from official endpoint POST /api/Account/search.
+        Supports filtering by active-only vs all accounts (including ineligible).
         """
         if not self.jwt_token:
             logger.warning("No JWT token available; attempting authentication first...")
@@ -70,20 +71,23 @@ class ProjectXClient:
                 return []
 
         acc_url = f"{self.base_url}/api/Account/search"
-        payload = {"onlyActiveAccounts": True}
+        payload = {"onlyActiveAccounts": only_active}
         headers = {
             "Authorization": f"Bearer {self.jwt_token}",
             "Content-Type": "application/json"
         }
 
         try:
-            logger.info(f"Fetching real accounts from TopstepX at {acc_url}...")
+            logger.info(f"Fetching real accounts from TopstepX at {acc_url} (onlyActive={only_active})...")
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(acc_url, json=payload, headers=headers)
                 if response.status_code == 200:
                     data = response.json()
                     if "accounts" in data:
-                        self.accounts = data["accounts"]
+                        raw_accs = data["accounts"]
+                        # Sort so that accounts with canTrade=True and isVisible=True come first
+                        raw_accs.sort(key=lambda x: (not x.get("canTrade", False), not x.get("isVisible", False), x.get("name", "")))
+                        self.accounts = raw_accs
                         logger.info(f"✓ Dynamically fetched {len(self.accounts)} REAL TopstepX accounts from API.")
                         return self.accounts
                 else:
