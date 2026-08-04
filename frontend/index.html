@@ -353,6 +353,8 @@
                     <button class="btn btn-outline" style="width: auto; padding: 3px 8px; font-size: 11px;" onclick="zoomChart(-1)" title="縮小 K 線寬度"><i class="fa-solid fa-magnifying-glass-minus"></i> 縮小</button>
                     <button class="btn btn-outline" style="width: auto; padding: 3px 8px; font-size: 11px;" onclick="resetChartZoom()" title="適應視窗"><i class="fa-solid fa-expand"></i> 復原</button>
                     <button class="btn btn-outline" style="width: auto; padding: 3px 10px; font-size: 11px; border-color: var(--accent-cyan); color: var(--accent-cyan); font-weight: 700;" id="btn-fullscreen-chart" onclick="toggleFullscreenChart()" title="全螢幕圖表 (ESC鍵返回)"><i class="fa-solid fa-maximize"></i> 極致全螢幕</button>
+                    <button class="btn btn-outline" style="width: auto; padding: 3px 10px; font-size: 11px; border-color: #26a69a; color: #26a69a; font-weight: 700;" onclick="exportChartData('csv')" title="將當前載入的全部 K 線/Tick 極速報價導出儲存為 Excel CSV 檔案"><i class="fa-solid fa-file-csv"></i> 儲存 CSV</button>
+                    <button class="btn btn-outline" style="width: auto; padding: 3px 8px; font-size: 11px; color: #ff9800; border-color: #ff9800;" onclick="exportChartData('json')" title="匯出原始 JSON 數據結構 (供 Python 機器人或歷史回測使用)"><i class="fa-solid fa-file-code"></i> JSON</button>
                     <button class="btn btn-outline" style="width: auto; padding: 3px 8px; font-size: 11px;" onclick="fetchProjectXBars(false)">
                         <i class="fa-solid fa-rotate"></i> 重整
                     </button>
@@ -513,6 +515,7 @@
         let autoRefreshInterval = null;
         let currentBarSpacing = 6;
         let isFullscreen = false;
+        let allCachedBars = new Map(); // Global real-time accumulator for K-line & Tick saving/exporting
 
         function initProjectXChart() {
             const container = document.getElementById('tv-lightweight-chart');
@@ -668,6 +671,7 @@
                         if (!seenTimes.has(b.time)) {
                             seenTimes.add(b.time);
                             uniqueBars.push(b);
+                            allCachedBars.set(b.time, b); // Continuously save/record to in-memory historical storage
                         }
                     });
                     uniqueBars.sort((a, b) => a.time - b.time);
@@ -761,13 +765,51 @@
 
         function setTimeframe(tf, btn) {
             currentTimeframe = tf;
+            allCachedBars.clear(); // Clear cache when changing timeframe
             document.querySelectorAll('.btn-tf').forEach(b => b.classList.remove('active'));
             if (btn) btn.classList.add('active');
             fetchProjectXBars(false, 200);
         }
 
         function changeSymbolOrTimeframe() {
+            allCachedBars.clear(); // Clear cache when changing symbol
             fetchProjectXBars(false, 200);
+        }
+
+        // Export real-time recorded market data to CSV (Excel) or JSON
+        function exportChartData(format = 'csv') {
+            const symbol = document.getElementById('chart-symbol').value;
+            const barsArray = Array.from(allCachedBars.values()).sort((a, b) => a.time - b.time);
+            if (barsArray.length === 0) {
+                alert("⏳ 尚未載入到足夠的 K 線或 Tick 報價，請等候幾秒鐘再試。");
+                return;
+            }
+
+            let fileContent = "";
+            let fileName = `TopstepX_${symbol}_${currentTimeframe}_${new Date().toISOString().slice(0,10)}.${format}`;
+            let mimeType = "text/csv;charset=utf-8;";
+
+            if (format === 'csv') {
+                fileContent = "UnixTimestamp,LocalDateTime,Open,High,Low,Close,Volume\n";
+                barsArray.forEach(b => {
+                    const d = new Date(b.time * 1000);
+                    const dateTimeStr = d.toLocaleString('zh-TW', { hour12: false });
+                    fileContent += `${b.time},"${dateTimeStr}",${b.open},${b.high},${b.low},${b.close},${b.volume || 0}\n`;
+                });
+            } else if (format === 'json') {
+                fileContent = JSON.stringify(barsArray, null, 2);
+                mimeType = "application/json;charset=utf-8;";
+            }
+
+            const blob = new Blob(["\uFEFF" + fileContent], { type: mimeType }); // \uFEFF BOM ensures Excel displays UTF-8 without garbling
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.setAttribute("href", url);
+            a.setAttribute("download", fileName);
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         // Load Accounts and ProjectX Chart automatically on page load
